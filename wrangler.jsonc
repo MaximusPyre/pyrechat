@@ -1,0 +1,53 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "pyrechat",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-08-25",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": true,
+	"routes": [
+		{ "pattern": "chat.pyrearms.dev", "custom_domain": true }
+	],
+	"assets": {
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api/*"]
+	},
+	"observability": {
+		"enabled": true,
+		"head_sampling_rate": 1
+	},
+	"upload_source_maps": true,
+	"vars": {
+		"PUBLIC_APP_NAME": "PyreChat",
+		"PUBLIC_APP_URL": "https://chat.pyrearms.dev"
+	},
+	"triggers": {
+		"crons": ["*/10 * * * *"]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "pyrechat",
+			"database_id": "eb82e0e7-3bb9-4e9c-8986-1a1622c2ad4a",
+			"migrations_dir": "migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "MEDIA",
+			"bucket_name": "pyrechat-media"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{ "name": "CHAT_ROOM", "class_name": "ChatRoom" },
+			{ "name": "USER_HUB", "class_name": "UserHub" }
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["ChatRoom", "UserHub"]
+		}
+	]
+}

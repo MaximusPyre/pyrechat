@@ -1,0 +1,13 @@
+{
+  "name": "PyreChat",
+  "short_name": "PyreChat",
+  "description": "Camera messenger for humans. No algorithm, no AI.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#FF6A1A",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
