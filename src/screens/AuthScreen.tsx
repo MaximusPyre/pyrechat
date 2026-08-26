@@ -97,6 +97,9 @@ export function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
 			>
 				{mode === "login" ? "New here? Sign up" : "Have an account? Log in"}
 			</button>
+			<a className="link" href="https://github.com/MaximusPyre/pyrechat" target="_blank" rel="noreferrer">
+				Source on GitHub
+			</a>
 		</div>
 	);
 }

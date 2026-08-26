@@ -184,6 +184,12 @@ export function SettingsScreen({ me, onBack, onLoggedOut }: { me: User; onBack: 
 					<input className="field" value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Bio" />
 				</div>
 				<button className="primary" onClick={() => void save()}>Save</button>
+				<div className="card">
+					<h3>Source</h3>
+					<a className="link" href="https://github.com/MaximusPyre/pyrechat" target="_blank" rel="noreferrer" style={{ marginTop: 0 }}>
+						github.com/MaximusPyre/pyrechat
+					</a>
+				</div>
 				<div className="card" style={{ marginTop: 20 }}>
 					<h3>Illegal content notice</h3>
 					<p className="muted" style={{ margin: "0 0 10px", fontWeight: 700 }}>
