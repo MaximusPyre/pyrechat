@@ -1,27 +1,29 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, getToken, setToken } from "./lib/api";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { api, ApiError } from "./lib/api";
 import { openSocket } from "./lib/ws";
 import type { ChatRow, Tab, User } from "./lib/types";
 import { Icon } from "./components/Icon";
 import { AuthScreen } from "./screens/AuthScreen";
-import { CameraScreen } from "./screens/CameraScreen";
-import { ChatListScreen, ChatThreadScreen } from "./screens/ChatScreens";
-import { SnapViewer, StoryViewer, type Story } from "./screens/StoriesScreen";
-import { FeedScreen } from "./screens/FeedScreen";
-import { MapScreen } from "./screens/MapScreen";
-import {
-	AddFriendsScreen,
-	CallScreen,
-	FriendshipScreen,
-	MemoriesScreen,
-	ProfileScreen,
-	SearchScreen,
-	SettingsScreen,
-} from "./screens/ProfileScreens";
+import { ChatListScreen } from "./screens/ChatScreens";
+import type { Story } from "./screens/StoriesScreen";
+
+const CameraScreen = lazy(() => import("./screens/CameraScreen").then((m) => ({ default: m.CameraScreen })));
+const FeedScreen = lazy(() => import("./screens/FeedScreen").then((m) => ({ default: m.FeedScreen })));
+const MapScreen = lazy(() => import("./screens/MapScreen").then((m) => ({ default: m.MapScreen })));
+const AddFriendsScreen = lazy(() => import("./screens/AddFriendsScreen").then((m) => ({ default: m.AddFriendsScreen })));
+const ProfileScreen = lazy(() => import("./screens/ProfileScreens").then((m) => ({ default: m.ProfileScreen })));
+const SettingsScreen = lazy(() => import("./screens/ProfileScreens").then((m) => ({ default: m.SettingsScreen })));
+const MemoriesScreen = lazy(() => import("./screens/ProfileScreens").then((m) => ({ default: m.MemoriesScreen })));
+const SearchScreen = lazy(() => import("./screens/ProfileScreens").then((m) => ({ default: m.SearchScreen })));
+const FriendshipScreen = lazy(() => import("./screens/ProfileScreens").then((m) => ({ default: m.FriendshipScreen })));
+const CallScreen = lazy(() => import("./screens/ProfileScreens").then((m) => ({ default: m.CallScreen })));
+const ChatThreadScreen = lazy(() => import("./screens/ChatScreens").then((m) => ({ default: m.ChatThreadScreen })));
+const SnapViewer = lazy(() => import("./screens/StoriesScreen").then((m) => ({ default: m.SnapViewer })));
+const StoryViewer = lazy(() => import("./screens/StoriesScreen").then((m) => ({ default: m.StoryViewer })));
 
 type Overlay =
 	| { t: "settings" }
-	| { t: "add" }
+	| { t: "add"; username?: string }
 	| { t: "memories" }
 	| { t: "search" }
 	| { t: "map" }
@@ -38,6 +40,14 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 	{ id: "you", label: "You", icon: "user" },
 ];
 
+function ScreenFallback() {
+	return (
+		<div className="page" style={{ display: "grid", placeItems: "center" }}>
+			<span className="muted">…</span>
+		</div>
+	);
+}
+
 export default function App() {
 	const [user, setUser] = useState<User | null>(null);
 	const [booting, setBooting] = useState(true);
@@ -50,19 +60,35 @@ export default function App() {
 		try {
 			const r = await api<{ user: User }>("/api/me");
 			setUser(r.user);
-		} catch {
-			setToken(null);
-			setUser(null);
+		} catch (e) {
+			const unauthorized = e instanceof ApiError && e.status === 401;
+			if (unauthorized) {
+				setUser(null);
+				return;
+			}
+			try {
+				const r = await api<{ user: User }>("/api/me");
+				setUser(r.user);
+			} catch (e2) {
+				if (e2 instanceof ApiError && e2.status === 401) {
+					setUser(null);
+				}
+			}
 		}
 	}, []);
 
 	useEffect(() => {
-		if (!getToken()) {
-			setBooting(false);
-			return;
-		}
 		void refreshMe().finally(() => setBooting(false));
 	}, [refreshMe]);
+
+	useEffect(() => {
+		if (!user) return;
+		const t = window.setTimeout(() => {
+			void import("./screens/CameraScreen");
+			void import("./screens/FeedScreen");
+		}, 900);
+		return () => window.clearTimeout(t);
+	}, [user]);
 
 	useEffect(() => {
 		if (!user) return;
@@ -90,9 +116,8 @@ export default function App() {
 		const path = location.pathname;
 		const add = path.match(/^\/add\/([^/]+)/);
 		if (add && user) {
-			void api("/api/friends/add", { method: "POST", body: JSON.stringify({ username: decodeURIComponent(add[1]) }) });
 			history.replaceState({}, "", "/");
-			setOverlay({ t: "add" });
+			setOverlay({ t: "add", username: decodeURIComponent(add[1]) });
 		}
 	}, [user]);
 
@@ -125,26 +150,32 @@ export default function App() {
 					/>
 				)}
 				{tab === "capture" && (
-					<CameraScreen onOpenMemories={() => setOverlay({ t: "memories" })} />
+					<Suspense fallback={<ScreenFallback />}>
+						<CameraScreen onOpenMemories={() => setOverlay({ t: "memories" })} />
+					</Suspense>
 				)}
 				{tab === "feed" && (
-					<FeedScreen
-						onSearch={() => setOverlay({ t: "search" })}
-						onAdd={() => setOverlay({ t: "add" })}
-						onOpenStory={(items, i) => setOverlay({ t: "story", items, i })}
-					/>
+					<Suspense fallback={<ScreenFallback />}>
+						<FeedScreen
+							onSearch={() => setOverlay({ t: "search" })}
+							onAdd={() => setOverlay({ t: "add" })}
+							onOpenStory={(items, i) => setOverlay({ t: "story", items, i })}
+						/>
+					</Suspense>
 				)}
 				{tab === "you" && (
-					<ProfileScreen
-						embedded
-						me={user}
-						onBack={() => setTab("inbox")}
-						onSettings={() => setOverlay({ t: "settings" })}
-						onAdd={() => setOverlay({ t: "add" })}
-						onMemories={() => setOverlay({ t: "memories" })}
-						onMap={() => setOverlay({ t: "map" })}
-						refresh={() => void refreshMe()}
-					/>
+					<Suspense fallback={<ScreenFallback />}>
+						<ProfileScreen
+							embedded
+							me={user}
+							onBack={() => setTab("inbox")}
+							onSettings={() => setOverlay({ t: "settings" })}
+							onAdd={() => setOverlay({ t: "add" })}
+							onMemories={() => setOverlay({ t: "memories" })}
+							onMap={() => setOverlay({ t: "map" })}
+							refresh={() => void refreshMe()}
+						/>
+					</Suspense>
 				)}
 			</div>
 			{!overlay && (
@@ -162,40 +193,44 @@ export default function App() {
 				</nav>
 			)}
 
-			{overlay?.t === "settings" && (
-				<SettingsScreen
-					me={user}
-					onBack={() => setOverlay(null)}
-					onLoggedOut={() => {
-						setUser(null);
-						setOverlay(null);
-					}}
-				/>
-			)}
-			{overlay?.t === "add" && <AddFriendsScreen onBack={() => setOverlay(null)} />}
-			{overlay?.t === "memories" && <MemoriesScreen onBack={() => setOverlay(null)} />}
-			{overlay?.t === "search" && (
-				<SearchScreen
-					onBack={() => setOverlay(null)}
-					onAdd={() => setOverlay({ t: "add" })}
-				/>
-			)}
-			{overlay?.t === "map" && <MapScreen me={user} onProfile={() => setOverlay(null)} />}
-			{overlay?.t === "thread" && (
-				<ChatThreadScreen
-					chat={overlay.chat}
-					me={{ id: user.id, display_name: user.displayName, skullmoji: user.skullmoji }}
-					onBack={() => setOverlay(null)}
-					onSnap={() => { setOverlay(null); setTab("capture"); }}
-					onCall={() => setOverlay({ t: "call", name: overlay.chat.members[0]?.display_name || "Friend" })}
-					onFriend={() => overlay.chat.members[0] && setOverlay({ t: "friend", id: overlay.chat.members[0].id })}
-				/>
-			)}
-			{overlay?.t === "snap" && <SnapViewer id={overlay.id} onClose={() => setOverlay(null)} />}
-			{overlay?.t === "story" && <StoryViewer items={overlay.items} start={overlay.i} onClose={() => setOverlay(null)} />}
-			{overlay?.t === "friend" && <FriendshipScreen id={overlay.id} onBack={() => setOverlay(null)} />}
-			{overlay?.t === "call" && <CallScreen peerName={overlay.name} onEnd={() => setOverlay(null)} />}
-			{inboxSnap && !overlay && <SnapViewer id={inboxSnap} onClose={() => setInboxSnap(null)} />}
+			<Suspense fallback={null}>
+				{overlay?.t === "settings" && (
+					<SettingsScreen
+						me={user}
+						onBack={() => setOverlay(null)}
+						onLoggedOut={() => {
+							setUser(null);
+							setOverlay(null);
+						}}
+					/>
+				)}
+				{overlay?.t === "add" && (
+					<AddFriendsScreen pendingUsername={overlay.username} onBack={() => setOverlay(null)} />
+				)}
+				{overlay?.t === "memories" && <MemoriesScreen onBack={() => setOverlay(null)} />}
+				{overlay?.t === "search" && (
+					<SearchScreen
+						onBack={() => setOverlay(null)}
+						onAdd={() => setOverlay({ t: "add" })}
+					/>
+				)}
+				{overlay?.t === "map" && <MapScreen me={user} onProfile={() => setOverlay(null)} />}
+				{overlay?.t === "thread" && (
+					<ChatThreadScreen
+						chat={overlay.chat}
+						me={{ id: user.id, display_name: user.displayName, skullmoji: user.skullmoji }}
+						onBack={() => setOverlay(null)}
+						onSnap={() => { setOverlay(null); setTab("capture"); }}
+						onCall={() => setOverlay({ t: "call", name: overlay.chat.members[0]?.display_name || "Friend" })}
+						onFriend={() => overlay.chat.members[0] && setOverlay({ t: "friend", id: overlay.chat.members[0].id })}
+					/>
+				)}
+				{overlay?.t === "snap" && <SnapViewer id={overlay.id} onClose={() => setOverlay(null)} />}
+				{overlay?.t === "story" && <StoryViewer items={overlay.items} start={overlay.i} onClose={() => setOverlay(null)} />}
+				{overlay?.t === "friend" && <FriendshipScreen id={overlay.id} onBack={() => setOverlay(null)} />}
+				{overlay?.t === "call" && <CallScreen peerName={overlay.name} onEnd={() => setOverlay(null)} />}
+				{inboxSnap && !overlay && <SnapViewer id={inboxSnap} onClose={() => setInboxSnap(null)} />}
+			</Suspense>
 		</div>
 	);
 }

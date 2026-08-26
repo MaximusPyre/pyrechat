@@ -1,15 +1,35 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
-	clearSessionCookie,
+	ageYears,
+	areFriends,
+	canContact,
+	canReadMedia,
+	canViewStory,
+	corsOrigin,
+	extForType,
+	isBlocked,
+	isOwnedMediaKey,
+	likeContains,
+	MAP_MODES,
+	normalizeMediaType,
+	originAllowed,
+	STORY_PRIVACY,
+	WHO_CAN_CONTACT,
+} from "./lib/access.js";
+import {
+	clearSessionCookies,
 	createSession,
 	hashPassword,
+	meUser,
 	publicUser,
 	requireUser,
+	secretEqual,
 	sessionCookie,
 	verifyPassword,
 	type AuthedUser,
 } from "./lib/auth.js";
+import { rateLimited } from "./lib/limit.js";
 import {
 	bad,
 	bumpScore,
@@ -21,6 +41,7 @@ import {
 	notify,
 	pairKey,
 	parseJson,
+	withCookies,
 } from "./lib/util.js";
 
 type Vars = { user: AuthedUser };
@@ -30,32 +51,52 @@ const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 app.use(
 	"/api/*",
 	cors({
-		origin: (origin) => origin || "*",
+		origin: (origin) => corsOrigin(origin) ?? "",
 		credentials: true,
-		allowHeaders: ["Content-Type", "Authorization"],
+		allowHeaders: ["Content-Type"],
 		allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 	}),
 );
 
-app.onError((err, c) => {
-	return c.json({ error: err.message || "Server error" }, 500);
+app.use("/api/*", async (c, next) => {
+	const method = c.req.method;
+	if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS" && !originAllowed(c.req.raw)) {
+		return bad("Forbidden", 403);
+	}
+	return next();
+});
+
+app.onError((err, _c) => {
+	console.error(err);
+	return json({ error: "Server error" }, 500);
 });
 
 const USERNAME_RE = /^[a-zA-Z0-9._]{3,24}$/;
+const MIN_PASSWORD = 8;
+
+function normUsername(raw: string): string {
+	return raw.trim();
+}
 
 app.post("/api/auth/signup", async (c) => {
-	const body = await c.req.json<{
-		username?: string;
-		password?: string;
-		displayName?: string;
-		birthday?: string;
-	}>();
-	const username = (body.username || "").trim();
+	if (await rateLimited(c.req.raw, "signup", 5, 3600)) return bad("Too many attempts", 429);
+	let body: { username?: string; password?: string; displayName?: string; birthday?: string };
+	try {
+		body = await c.req.json();
+	} catch {
+		return bad("Invalid request");
+	}
+	const username = normUsername(body.username || "");
 	const password = body.password || "";
-	const displayName = (body.displayName || username).trim();
+	const displayName = (body.displayName || username).trim().slice(0, 32);
+	const birthday = (body.birthday || "").trim();
+	const age = ageYears(birthday);
 	if (!USERNAME_RE.test(username)) return bad("Username must be 3–24 letters, numbers, dots, or underscores");
-	if (password.length < 6) return bad("Password must be at least 6 characters");
-	const exists = await c.env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
+	if (password.length < MIN_PASSWORD) return bad(`Password must be at least ${MIN_PASSWORD} characters`);
+	if (password.length > 200) return bad("Password is too long");
+	if (age === null) return bad("Enter a valid birthday");
+	if (age < 13) return bad("You must be at least 13");
+	const exists = await c.env.DB.prepare("SELECT id FROM users WHERE username = ? COLLATE NOCASE").bind(username).first();
 	if (exists) return bad("Username taken", 409);
 	const id = crypto.randomUUID();
 	const skullmoji = JSON.stringify({
@@ -70,41 +111,55 @@ app.post("/api/auth/signup", async (c) => {
 			`INSERT INTO users (id, username, display_name, password_hash, birthday, skullmoji, created_at, last_active)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
-			.bind(id, username, displayName, await hashPassword(password), body.birthday || null, skullmoji, nowIso(), nowIso())
+			.bind(id, username, displayName, await hashPassword(password), birthday, skullmoji, nowIso(), nowIso())
 			.run();
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		if (/UNIQUE/i.test(msg)) return bad("Username taken", 409);
 		return bad("Could not create account", 500);
 	}
-	const token = await createSession(c.env, id);
+	const token = await createSession(c.env, id, c.req.raw);
 	const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first<AuthedUser>();
-	c.header("Set-Cookie", sessionCookie(token));
-	return json({ token, user: publicUser(user!) });
+	if (!user) return bad("Could not create account", 500);
+	return withCookies(json({ user: meUser(user) }), sessionCookie(token, c.req.raw));
 });
 
 app.post("/api/auth/login", async (c) => {
-	const body = await c.req.json<{ username?: string; password?: string }>();
-	const user = await c.env.DB.prepare("SELECT * FROM users WHERE username = ?")
-		.bind((body.username || "").trim())
+	if (await rateLimited(c.req.raw, "login", 10, 900)) return bad("Too many attempts", 429);
+	let body: { username?: string; password?: string };
+	try {
+		body = await c.req.json();
+	} catch {
+		return bad("Invalid request");
+	}
+	const username = normUsername(body.username || "");
+	const password = body.password || "";
+	if (!username || !password) return bad("Enter username and password");
+	const user = await c.env.DB.prepare("SELECT * FROM users WHERE username = ? COLLATE NOCASE")
+		.bind(username)
 		.first<AuthedUser & { password_hash: string }>();
-	if (!user || !(await verifyPassword(body.password || "", user.password_hash))) {
+	if (!user || !(await verifyPassword(password, user.password_hash))) {
 		return bad("Invalid username or password", 401);
 	}
-	const token = await createSession(c.env, user.id);
-	c.header("Set-Cookie", sessionCookie(token));
-	return json({ token, user: publicUser(user) });
+	if (!user.password_hash.startsWith("pbkdf2$100000$")) {
+		try {
+			await c.env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+				.bind(await hashPassword(password), user.id)
+				.run();
+		} catch {
+			/* login still succeeds */
+		}
+	}
+	const token = await createSession(c.env, user.id, c.req.raw);
+	return withCookies(json({ user: meUser(user) }), sessionCookie(token, c.req.raw));
 });
 
 app.post("/api/auth/logout", async (c) => {
 	const auth = await requireUser(c.req.raw, c.env);
-	if (auth instanceof Response) {
-		c.header("Set-Cookie", clearSessionCookie());
-		return json({ ok: true });
+	if (!(auth instanceof Response)) {
+		await c.env.DB.prepare("DELETE FROM sessions WHERE token = ?").bind(auth.token).run();
 	}
-	await c.env.DB.prepare("DELETE FROM sessions WHERE token = ?").bind(auth.token).run();
-	c.header("Set-Cookie", clearSessionCookie());
-	return json({ ok: true });
+	return withCookies(json({ ok: true }), ...clearSessionCookies());
 });
 
 app.use("/api/*", async (c, next) => {
@@ -112,6 +167,8 @@ app.use("/api/*", async (c, next) => {
 	if (c.req.path === "/api/legal-notice") return next();
 	if (c.req.path === "/api/admin/legal/takedown") return next();
 	if (c.req.path === "/api/health") return next();
+	if (c.req.path === "/api/download/android") return next();
+	if (c.req.path === "/api/app") return next();
 	if (c.req.method === "OPTIONS") return next();
 	const auth = await requireUser(c.req.raw, c.env);
 	if (auth instanceof Response) return auth;
@@ -119,39 +176,52 @@ app.use("/api/*", async (c, next) => {
 	return next();
 });
 
-app.get("/api/me", (c) => json({ user: publicUser(c.get("user")) }));
+app.get("/api/me", (c) => json({ user: meUser(c.get("user")) }));
 
 app.patch("/api/me", async (c) => {
 	const me = c.get("user");
 	const body = await c.req.json<Record<string, unknown>>();
-	const display = typeof body.displayName === "string" ? body.displayName.trim() : me.display_name;
+	const display = typeof body.displayName === "string" ? body.displayName.trim().slice(0, 32) : me.display_name;
 	const bio = typeof body.bio === "string" ? body.bio.slice(0, 140) : me.bio;
-	const storyPrivacy = typeof body.storyPrivacy === "string" ? body.storyPrivacy : me.story_privacy;
-	const whoCanContact = typeof body.whoCanContact === "string" ? body.whoCanContact : me.who_can_contact;
-	const mapMode = typeof body.mapMode === "string" ? body.mapMode : me.map_mode;
-	const mapSelected = Array.isArray(body.mapSelected) ? JSON.stringify(body.mapSelected) : me.map_selected;
+	const storyPrivacy =
+		typeof body.storyPrivacy === "string" && STORY_PRIVACY.has(body.storyPrivacy) ? body.storyPrivacy : me.story_privacy;
+	const whoCanContact =
+		typeof body.whoCanContact === "string" && WHO_CAN_CONTACT.has(body.whoCanContact)
+			? body.whoCanContact
+			: me.who_can_contact;
+	const mapMode = typeof body.mapMode === "string" && MAP_MODES.has(body.mapMode) ? body.mapMode : me.map_mode;
+	const mapSelected = Array.isArray(body.mapSelected)
+		? JSON.stringify(body.mapSelected.filter((id) => typeof id === "string").slice(0, 200))
+		: me.map_selected;
 	const skullmoji = body.skullmoji ? JSON.stringify(body.skullmoji) : me.skullmoji;
-	const birthday = typeof body.birthday === "string" ? body.birthday : me.birthday;
-	const phone = typeof body.phone === "string" ? body.phone : me.phone;
-	const email = typeof body.email === "string" ? body.email : me.email;
+	let birthday = me.birthday;
+	if (typeof body.birthday === "string") {
+		const age = ageYears(body.birthday);
+		if (age === null) return bad("Enter a valid birthday");
+		if (age < 13) return bad("You must be at least 13");
+		birthday = body.birthday.trim();
+	}
+	const phone = typeof body.phone === "string" ? body.phone.slice(0, 32) : me.phone;
+	const email = typeof body.email === "string" ? body.email.slice(0, 120) : me.email;
 	await c.env.DB.prepare(
 		`UPDATE users SET display_name=?, bio=?, story_privacy=?, who_can_contact=?, map_mode=?, map_selected=?, skullmoji=?, birthday=?, phone=?, email=? WHERE id=?`,
 	)
 		.bind(display, bio, storyPrivacy, whoCanContact, mapMode, mapSelected, skullmoji, birthday, phone, email, me.id)
 		.run();
 	const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(me.id).first<AuthedUser>();
-	return json({ user: publicUser(user!) });
+	return json({ user: meUser(user!) });
 });
 
 app.get("/api/users/search", async (c) => {
-	const q = (c.req.query("q") || "").trim();
+	const q = (c.req.query("q") || "").trim().slice(0, 32);
 	if (q.length < 1) return json({ users: [] });
 	const me = c.get("user");
+	const like = likeContains(q);
 	const rows = await c.env.DB.prepare(
 		`SELECT id, username, display_name, skullmoji, snap_score FROM users
-     WHERE id != ? AND (username LIKE ? OR display_name LIKE ?) LIMIT 30`,
+     WHERE id != ? AND (username LIKE ? ESCAPE '!' OR display_name LIKE ? ESCAPE '!') LIMIT 30`,
 	)
-		.bind(me.id, `%${q}%`, `%${q}%`)
+		.bind(me.id, like, like)
 		.all();
 	return json({ users: rows.results });
 });
@@ -166,15 +236,6 @@ app.get("/api/users/:id", async (c) => {
 	return json({ user: row });
 });
 
-async function areFriends(env: Env, a: string, b: string): Promise<boolean> {
-	const row = await env.DB.prepare(
-		"SELECT 1 FROM friendships WHERE user_id = ? AND friend_id = ? AND status = 'accepted'",
-	)
-		.bind(a, b)
-		.first();
-	return !!row;
-}
-
 app.get("/api/friends", async (c) => {
 	const me = c.get("user");
 	const rows = await c.env.DB.prepare(
@@ -184,7 +245,7 @@ app.get("/api/friends", async (c) => {
      JOIN users u ON u.id = f.friend_id
      LEFT JOIN streaks s ON s.user_a = CASE WHEN f.user_id < f.friend_id THEN f.user_id ELSE f.friend_id END
                         AND s.user_b = CASE WHEN f.user_id < f.friend_id THEN f.friend_id ELSE f.user_id END
-     WHERE f.user_id = ?
+     WHERE f.user_id = ? AND f.status = 'accepted'
      ORDER BY u.display_name`,
 	)
 		.bind(me.id)
@@ -192,31 +253,125 @@ app.get("/api/friends", async (c) => {
 	return json({ friends: rows.results });
 });
 
-app.get("/api/friends/pending", async (c) => {
-	const me = c.get("user");
-	const incoming = await c.env.DB.prepare(
-		`SELECT u.id, u.username, u.display_name, u.skullmoji FROM friendships f
+const PERSON_COLS = "u.id, u.username, u.display_name, u.skullmoji";
+
+async function clearDismissal(env: Env, me: string, other: string): Promise<void> {
+	await env.DB.prepare("DELETE FROM friend_dismissals WHERE user_id = ? AND other_id = ?").bind(me, other).run();
+}
+
+async function listIncoming(env: Env, me: string) {
+	return env.DB.prepare(
+		`SELECT ${PERSON_COLS} FROM friendships f
      JOIN users u ON u.id = f.user_id
-     WHERE f.friend_id = ? AND f.status = 'pending'`,
+     WHERE f.friend_id = ? AND f.status = 'pending'
+       AND u.id NOT IN (SELECT other_id FROM friend_dismissals WHERE user_id = ? AND kind = 'deleted')
+     ORDER BY f.created_at DESC`,
 	)
-		.bind(me.id)
+		.bind(me, me)
 		.all();
+}
+
+async function listSent(env: Env, me: string) {
+	return env.DB.prepare(
+		`SELECT ${PERSON_COLS} FROM friendships f
+     JOIN users u ON u.id = f.friend_id
+     WHERE f.user_id = ? AND f.status = 'pending'
+     ORDER BY f.created_at DESC`,
+	)
+		.bind(me)
+		.all();
+}
+
+async function listDismissed(env: Env, me: string, kind: "hidden" | "deleted") {
+	return env.DB.prepare(
+		`SELECT ${PERSON_COLS} FROM friend_dismissals d
+     JOIN users u ON u.id = d.other_id
+     WHERE d.user_id = ? AND d.kind = ?
+     ORDER BY d.created_at DESC`,
+	)
+		.bind(me, kind)
+		.all();
+}
+
+async function listQuickAdd(env: Env, me: string) {
+	return env.DB.prepare(
+		`SELECT ${PERSON_COLS}
+     FROM users u
+     WHERE u.id != ?
+       AND u.who_can_contact = 'everyone'
+       AND u.id NOT IN (SELECT friend_id FROM friendships WHERE user_id = ?)
+       AND u.id NOT IN (SELECT user_id FROM friendships WHERE friend_id = ? AND status = 'pending')
+       AND u.id NOT IN (SELECT other_id FROM friend_dismissals WHERE user_id = ?)
+       AND u.id NOT IN (SELECT blocked_id FROM blocks WHERE user_id = ?)
+       AND u.id NOT IN (SELECT user_id FROM blocks WHERE blocked_id = ?)
+     ORDER BY u.snap_score DESC, u.username
+     LIMIT 20`,
+	)
+		.bind(me, me, me, me, me, me)
+		.all();
+}
+
+app.get("/api/friends/pending", async (c) => {
+	const incoming = await listIncoming(c.env, c.get("user").id);
 	return json({ incoming: incoming.results });
 });
 
 app.get("/api/friends/quick-add", async (c) => {
-	const me = c.get("user");
-	const rows = await c.env.DB.prepare(
-		`SELECT u.id, u.username, u.display_name, u.skullmoji, u.created_at
-     FROM users u
-     WHERE u.id != ?
-       AND u.id NOT IN (SELECT friend_id FROM friendships WHERE user_id = ?)
-     ORDER BY u.created_at DESC
-     LIMIT 20`,
-	)
-		.bind(me.id, me.id)
-		.all();
+	const rows = await listQuickAdd(c.env, c.get("user").id);
 	return json({ suggestions: rows.results });
+});
+
+app.get("/api/friends/adds", async (c) => {
+	const me = c.get("user").id;
+	const [incoming, sent, hidden, deleted, suggestions] = await Promise.all([
+		listIncoming(c.env, me),
+		listSent(c.env, me),
+		listDismissed(c.env, me, "hidden"),
+		listDismissed(c.env, me, "deleted"),
+		listQuickAdd(c.env, me),
+	]);
+	return json({
+		incoming: incoming.results,
+		sent: sent.results,
+		hidden: hidden.results,
+		deleted: deleted.results,
+		suggestions: suggestions.results,
+	});
+});
+
+app.post("/api/friends/dismiss", async (c) => {
+	const me = c.get("user");
+	let body: { userId?: string; kind?: string };
+	try {
+		body = await c.req.json();
+	} catch {
+		return bad("Invalid request");
+	}
+	const other = (body.userId || "").trim();
+	const kind = body.kind === "deleted" ? "deleted" : body.kind === "hidden" ? "hidden" : "";
+	if (!other || !kind) return bad("userId and kind required");
+	if (other === me.id) return bad("Cannot dismiss yourself");
+	const exists = await c.env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(other).first();
+	if (!exists) return bad("User not found", 404);
+	await c.env.DB.prepare(
+		"INSERT OR REPLACE INTO friend_dismissals (user_id, other_id, kind, created_at) VALUES (?, ?, ?, ?)",
+	)
+		.bind(me.id, other, kind, nowIso())
+		.run();
+	return json({ ok: true, kind });
+});
+
+app.post("/api/friends/restore", async (c) => {
+	const me = c.get("user");
+	let body: { userId?: string };
+	try {
+		body = await c.req.json();
+	} catch {
+		return bad("Invalid request");
+	}
+	if (!body.userId) return bad("userId required");
+	await clearDismissal(c.env, me.id, body.userId);
+	return json({ ok: true });
 });
 
 app.post("/api/friends/add", async (c) => {
@@ -224,10 +379,11 @@ app.post("/api/friends/add", async (c) => {
 	const body = await c.req.json<{ username?: string; userId?: string }>();
 	let target = body.userId
 		? await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(body.userId).first<AuthedUser>()
-		: await c.env.DB.prepare("SELECT * FROM users WHERE username = ?")
+		: await c.env.DB.prepare("SELECT * FROM users WHERE username = ? COLLATE NOCASE")
 				.bind((body.username || "").trim())
 				.first<AuthedUser>();
 	if (!target || target.id === me.id) return bad("User not found", 404);
+	await clearDismissal(c.env, me.id, target.id);
 	const blocked = await c.env.DB.prepare(
 		"SELECT 1 FROM blocks WHERE (user_id = ? AND blocked_id = ?) OR (user_id = ? AND blocked_id = ?)",
 	)
@@ -404,22 +560,27 @@ function buildCharms(
 
 app.post("/api/media", async (c) => {
 	const me = c.get("user");
-	const ct = c.req.header("content-type") || "application/octet-stream";
-	const ext = ct.includes("video") ? "webm" : ct.includes("audio") ? "webm" : "jpg";
-	const key = `u/${me.id}/${crypto.randomUUID()}.${ext}`;
-	const buf = await c.req.arrayBuffer();
-	if (buf.byteLength > 40 * 1024 * 1024) return bad("File too large", 413);
-	await c.env.MEDIA.put(key, buf, { httpMetadata: { contentType: ct } });
+	const ct = normalizeMediaType(c.req.header("content-type"));
+	if (!ct) return bad("Unsupported media type", 415);
+	const len = Number(c.req.header("content-length") || "0");
+	if (!len || len > 40 * 1024 * 1024) return bad("File too large", 413);
+	const body = c.req.raw.body;
+	if (!body) return bad("Empty file");
+	const key = `u/${me.id}/${crypto.randomUUID()}.${extForType(ct)}`;
+	await c.env.MEDIA.put(key, body, { httpMetadata: { contentType: ct } });
 	return json({ key, url: `/api/media/${encodeURIComponent(key)}` });
 });
 
 app.get("/api/media/*", async (c) => {
 	const key = decodeURIComponent(c.req.path.replace(/^\/api\/media\//, ""));
+	const me = c.get("user");
+	if (!(await canReadMedia(c.env, me.id, key))) return bad("Forbidden", 403);
 	const obj = await c.env.MEDIA.get(key);
 	if (!obj) return bad("Not found", 404);
 	const headers = new Headers();
 	headers.set("Content-Type", obj.httpMetadata?.contentType || "application/octet-stream");
 	headers.set("Cache-Control", "private, max-age=3600");
+	headers.set("X-Content-Type-Options", "nosniff");
 	return new Response(obj.body, { headers });
 });
 
@@ -470,15 +631,48 @@ app.post("/api/snaps", async (c) => {
 		saveMemory?: boolean;
 	}>();
 	if (!body.mediaKey) return bad("mediaKey required");
+	if (!isOwnedMediaKey(body.mediaKey, me.id)) return bad("Invalid media", 403);
+	const recipients = new Set<string>();
+	let conversationId = body.conversationId || null;
+	if (conversationId) {
+		const member = await c.env.DB.prepare(
+			"SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?",
+		)
+			.bind(conversationId, me.id)
+			.first();
+		if (!member) return bad("Forbidden", 403);
+		const conv = await c.env.DB.prepare("SELECT is_group FROM conversations WHERE id = ?")
+			.bind(conversationId)
+			.first<{ is_group: number }>();
+		const peers = await c.env.DB.prepare(
+			"SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?",
+		)
+			.bind(conversationId, me.id)
+			.all<{ user_id: string }>();
+		for (const p of peers.results) {
+			if (await isBlocked(c.env, me.id, p.user_id)) continue;
+			if (!conv?.is_group) {
+				const denied = await canContact(c.env, me.id, p.user_id);
+				if (denied) return denied;
+			}
+			recipients.add(p.user_id);
+		}
+	} else {
+		for (const rid of body.recipientIds || []) {
+			if (!rid || rid === me.id) continue;
+			const denied = await canContact(c.env, me.id, rid);
+			if (denied) return denied;
+			recipients.add(rid);
+		}
+	}
+	if (!conversationId && recipients.size === 1) {
+		conversationId = dmId(me.id, [...recipients][0]);
+	}
+	if (recipients.size === 0) return bad("No recipients");
 	const id = crypto.randomUUID();
 	const created = nowIso();
 	const expires = hoursFromNow(24);
 	const overlay = JSON.stringify(body.overlay || null);
-	const recipients = new Set(body.recipientIds || []);
-	let conversationId = body.conversationId || null;
-	if (!conversationId && recipients.size === 1) {
-		conversationId = dmId(me.id, [...recipients][0]);
-	}
 	await c.env.DB.prepare(
 		`INSERT INTO snaps (id, sender_id, conversation_id, media_key, kind, duration_sec, caption, overlay_json, created_at, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -601,6 +795,10 @@ app.post("/api/snaps/:id/view", async (c) => {
 app.post("/api/snaps/:id/screenshot", async (c) => {
 	const me = c.get("user");
 	const id = c.req.param("id");
+	const rec = await c.env.DB.prepare("SELECT 1 FROM snap_receipts WHERE snap_id = ? AND user_id = ?")
+		.bind(id, me.id)
+		.first();
+	if (!rec) return bad("Forbidden", 403);
 	await c.env.DB.prepare("UPDATE snap_receipts SET screenshot_at = ? WHERE snap_id = ? AND user_id = ?")
 		.bind(nowIso(), id, me.id)
 		.run();
@@ -623,6 +821,7 @@ app.post("/api/stories", async (c) => {
 		saveMemory?: boolean;
 	}>();
 	if (!body.mediaKey) return bad("mediaKey required");
+	if (!isOwnedMediaKey(body.mediaKey, me.id)) return bad("Invalid media", 403);
 	const created = nowIso();
 	await c.env.DB.prepare(
 		`INSERT INTO stories (id, user_id, media_key, kind, caption, overlay_json, lat, lng, created_at, expires_at)
@@ -665,24 +864,36 @@ app.get("/api/stories", async (c) => {
      JOIN users u ON u.id = s.user_id
      JOIN friendships f ON f.friend_id = s.user_id AND f.user_id = ? AND f.status = 'accepted'
      WHERE s.expires_at > datetime('now')
+       AND u.story_privacy IN ('friends', 'everyone')
+       AND u.id NOT IN (SELECT blocked_id FROM blocks WHERE user_id = ?)
+       AND u.id NOT IN (SELECT user_id FROM blocks WHERE blocked_id = ?)
      ORDER BY s.created_at DESC`,
 	)
-		.bind(me.id)
+		.bind(me.id, me.id, me.id)
 		.all();
 	const discover = await c.env.DB.prepare(
 		`SELECT s.*, u.username, u.display_name, u.skullmoji
      FROM stories s JOIN users u ON u.id = s.user_id
      WHERE s.expires_at > datetime('now')
-       AND (u.story_privacy = 'everyone' OR s.user_id = ?)
+       AND u.story_privacy = 'everyone'
+       AND s.user_id != ?
+       AND u.id NOT IN (SELECT blocked_id FROM blocks WHERE user_id = ?)
+       AND u.id NOT IN (SELECT user_id FROM blocks WHERE blocked_id = ?)
      ORDER BY s.created_at DESC LIMIT 80`,
 	)
-		.bind(me.id)
+		.bind(me.id, me.id, me.id)
 		.all();
 	return json({ mine: mine.results, friends: friends.results, discover: discover.results });
 });
 
 app.post("/api/stories/:id/view", async (c) => {
 	const me = c.get("user");
+	const story = await c.env.DB.prepare(
+		`SELECT s.user_id, u.story_privacy FROM stories s JOIN users u ON u.id = s.user_id WHERE s.id = ?`,
+	)
+		.bind(c.req.param("id"))
+		.first<{ user_id: string; story_privacy: string }>();
+	if (!story || !(await canViewStory(c.env, me.id, story))) return bad("Forbidden", 403);
 	await c.env.DB.prepare(
 		"INSERT OR REPLACE INTO story_views (story_id, viewer_id, viewed_at) VALUES (?, ?, ?)",
 	)
@@ -769,12 +980,21 @@ app.post("/api/chats/group", async (c) => {
 	const body = await c.req.json<{ name?: string; memberIds?: string[] }>();
 	const id = crypto.randomUUID();
 	const now = nowIso();
+	const members = new Set<string>([me.id]);
+	for (const uid of body.memberIds || []) {
+		if (!uid || uid === me.id) continue;
+		const exists = await c.env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(uid).first();
+		if (!exists) return bad("User not found", 404);
+		const denied = await canContact(c.env, me.id, uid);
+		if (denied) return denied;
+		members.add(uid);
+	}
+	if (members.size < 2) return bad("Need at least one friend");
 	await c.env.DB.prepare(
 		"INSERT INTO conversations (id, is_group, name, created_by, created_at) VALUES (?, 1, ?, ?, ?)",
 	)
-		.bind(id, body.name || "Group", me.id, now)
+		.bind(id, (body.name || "Group").slice(0, 40), me.id, now)
 		.run();
-	const members = new Set([me.id, ...(body.memberIds || [])]);
 	for (const uid of members) {
 		await c.env.DB.prepare(
 			"INSERT INTO conversation_members (conversation_id, user_id, joined_at) VALUES (?, ?, ?)",
@@ -818,7 +1038,21 @@ app.post("/api/chats/:id/messages", async (c) => {
 		.bind(id, me.id)
 		.first();
 	if (!member) return bad("Forbidden", 403);
+	const conv = await c.env.DB.prepare("SELECT is_group FROM conversations WHERE id = ?")
+		.bind(id)
+		.first<{ is_group: number }>();
 	const body = await c.req.json<{ kind?: string; body?: string; mediaKey?: string; extra?: unknown }>();
+	if (body.mediaKey && !isOwnedMediaKey(body.mediaKey, me.id)) return bad("Invalid media", 403);
+	const peers = await c.env.DB.prepare("SELECT user_id FROM conversation_members WHERE conversation_id = ?")
+		.bind(id)
+		.all<{ user_id: string }>();
+	if (!conv?.is_group) {
+		const other = peers.results.find((p) => p.user_id !== me.id);
+		if (other) {
+			const denied = await canContact(c.env, me.id, other.user_id);
+			if (denied) return denied;
+		}
+	}
 	const msgId = crypto.randomUUID();
 	await c.env.DB.prepare(
 		`INSERT INTO messages (id, conversation_id, sender_id, kind, body, media_key, extra, created_at)
@@ -850,11 +1084,9 @@ app.post("/api/chats/:id/messages", async (c) => {
 	});
 	const stub = c.env.CHAT_ROOM.get(c.env.CHAT_ROOM.idFromName(id));
 	await stub.fetch("https://room/broadcast", { method: "POST", body: payload });
-	const peers = await c.env.DB.prepare("SELECT user_id FROM conversation_members WHERE conversation_id = ?")
-		.bind(id)
-		.all<{ user_id: string }>();
 	for (const p of peers.results) {
 		if (p.user_id === me.id) continue;
+		if (await isBlocked(c.env, me.id, p.user_id)) continue;
 		const hub = c.env.USER_HUB.get(c.env.USER_HUB.idFromName(p.user_id));
 		await hub.fetch("https://hub/push", {
 			method: "POST",
@@ -866,6 +1098,14 @@ app.post("/api/chats/:id/messages", async (c) => {
 
 app.post("/api/messages/:id/save", async (c) => {
 	const me = c.get("user");
+	const member = await c.env.DB.prepare(
+		`SELECT 1 FROM messages m
+     JOIN conversation_members c ON c.conversation_id = m.conversation_id AND c.user_id = ?
+     WHERE m.id = ?`,
+	)
+		.bind(me.id, c.req.param("id"))
+		.first();
+	if (!member) return bad("Forbidden", 403);
 	await c.env.DB.prepare("INSERT OR IGNORE INTO message_saves (message_id, user_id) VALUES (?, ?)")
 		.bind(c.req.param("id"), me.id)
 		.run();
@@ -894,6 +1134,7 @@ app.post("/api/memories", async (c) => {
 	const me = c.get("user");
 	const body = await c.req.json<{ mediaKey?: string; kind?: string; caption?: string }>();
 	if (!body.mediaKey) return bad("mediaKey required");
+	if (!isOwnedMediaKey(body.mediaKey, me.id)) return bad("Invalid media", 403);
 	const created = nowIso();
 	await c.env.DB.prepare(
 		"INSERT INTO memories (id, user_id, media_key, kind, caption, created_at, month_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -939,6 +1180,7 @@ app.post("/api/spotlight", async (c) => {
 	const me = c.get("user");
 	const body = await c.req.json<{ mediaKey?: string; caption?: string }>();
 	if (!body.mediaKey) return bad("mediaKey required");
+	if (!isOwnedMediaKey(body.mediaKey, me.id)) return bad("Invalid media", 403);
 	const id = crypto.randomUUID();
 	await c.env.DB.prepare(
 		"INSERT INTO spotlight (id, user_id, media_key, caption, created_at, hearts) VALUES (?, ?, ?, ?, ?, 0)",
@@ -1067,6 +1309,8 @@ app.post("/api/calls/signal", async (c) => {
 	const me = c.get("user");
 	const body = await c.req.json<{ to?: string; signal?: unknown }>();
 	if (!body.to) return bad("to required");
+	const denied = await canContact(c.env, me.id, body.to);
+	if (denied) return denied;
 	const stub = c.env.USER_HUB.get(c.env.USER_HUB.idFromName(body.to));
 	await stub.fetch("https://hub/push", {
 		method: "POST",
@@ -1076,6 +1320,7 @@ app.post("/api/calls/signal", async (c) => {
 });
 
 app.post("/api/legal-notice", async (c) => {
+	if (await rateLimited(c.req.raw, "legal", 5, 3600)) return bad("Too many attempts", 429);
 	const body = await c.req.json<{ contact?: string; targetUrl?: string; detail?: string }>();
 	const contact = (body.contact || "").trim().slice(0, 200);
 	const targetUrl = (body.targetUrl || "").trim().slice(0, 500);
@@ -1092,9 +1337,10 @@ app.post("/api/legal-notice", async (c) => {
 });
 
 app.post("/api/admin/legal/takedown", async (c) => {
+	if (await rateLimited(c.req.raw, "admin", 5, 900)) return bad("Too many attempts", 429);
 	const expected = c.env.ADMIN_PASSWORD;
 	const body = await c.req.json<{ password?: string; mediaKey?: string; noticeId?: string }>();
-	if (!expected || body.password !== expected) return bad("Forbidden", 403);
+	if (!expected || !(await secretEqual(body.password || "", expected))) return bad("Forbidden", 403);
 	if (body.mediaKey) {
 		await c.env.MEDIA.delete(body.mediaKey).catch(() => undefined);
 		await c.env.DB.prepare("DELETE FROM snaps WHERE media_key = ?").bind(body.mediaKey).run();
@@ -1109,14 +1355,27 @@ app.post("/api/admin/legal/takedown", async (c) => {
 	return json({ ok: true });
 });
 
-app.get("/api/health", (_c) =>
+app.get("/api/health", (_c) => json({ ok: true }));
+
+app.get("/api/app", () =>
 	json({
-		ok: true,
-		name: "PyreChat",
-		ai: false,
-		ranking: false,
-		moderation: "illegal_only",
+		android: {
+			versionCode: 2,
+			versionName: "1.1",
+			url: "https://chat.pyrearms.dev/api/download/android",
+		},
 	}),
 );
+
+app.get("/api/download/android", async (c) => {
+	const obj = await c.env.MEDIA.get("app/pyrechat.apk");
+	if (!obj) return bad("Android build is not published yet", 404);
+	const headers = new Headers();
+	headers.set("Content-Type", "application/vnd.android.package-archive");
+	headers.set("Content-Disposition", 'attachment; filename="pyrechat.apk"');
+	headers.set("Cache-Control", "public, max-age=300");
+	if (obj.size != null) headers.set("Content-Length", String(obj.size));
+	return new Response(obj.body, { headers });
+});
 
 export default app;

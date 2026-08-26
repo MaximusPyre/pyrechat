@@ -4,7 +4,7 @@
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-08-25",
 	"compatibility_flags": ["nodejs_compat"],
-	"workers_dev": true,
+	"workers_dev": false,
 	"routes": [
 		{ "pattern": "chat.pyrearms.dev", "custom_domain": true }
 	],
@@ -16,7 +16,7 @@
 		"enabled": true,
 		"head_sampling_rate": 1
 	},
-	"upload_source_maps": true,
+	"upload_source_maps": false,
 	"vars": {
 		"PUBLIC_APP_NAME": "PyreChat",
 		"PUBLIC_APP_URL": "https://chat.pyrearms.dev"

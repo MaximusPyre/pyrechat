@@ -10,6 +10,12 @@ export function json(data: unknown, status = 200): Response {
 	return Response.json(data, { status });
 }
 
+export function withCookies(res: Response, ...cookies: string[]): Response {
+	const out = new Response(res.body, res);
+	for (const cookie of cookies) out.headers.append("Set-Cookie", cookie);
+	return out;
+}
+
 export function bad(msg: string, status = 400): Response {
 	return Response.json({ error: msg }, { status });
 }
