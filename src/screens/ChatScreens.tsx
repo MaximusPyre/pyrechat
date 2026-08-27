@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, mediaUrl, uploadMedia } from "../lib/api";
 import { chatFieldProps } from "../lib/shell";
 import type { ChatRow, User } from "../lib/types";
@@ -223,7 +223,9 @@ export function ChatThreadScreen({
 	const [stickersOpen, setStickersOpen] = useState(false);
 	const [here, setHere] = useState<Set<string>>(new Set());
 	const [typing, setTyping] = useState<Set<string>>(new Set());
-	const bottom = useRef<HTMLDivElement>(null);
+	const scroller = useRef<HTMLDivElement>(null);
+	const stack = useRef<HTMLDivElement>(null);
+	const followBottom = useRef(true);
 	const wsRef = useRef<WebSocket | null>(null);
 	const typeTimer = useRef(0);
 	const peerTimers = useRef<Map<string, number>>(new Map());
@@ -244,7 +246,12 @@ export function ChatThreadScreen({
 	}
 
 	useEffect(() => {
-		void api<{ messages: Msg[] }>(`/api/chats/${chat.id}/messages`).then((r) => setMsgs(r.messages));
+		let live = true;
+		setMsgs([]);
+		followBottom.current = true;
+		void api<{ messages: Msg[] }>(`/api/chats/${chat.id}/messages`).then((r) => {
+			if (live) setMsgs(r.messages);
+		});
 		const ws = openSocket(`/api/ws/chat/${chat.id}`);
 		wsRef.current = ws;
 		ws.onmessage = (ev) => {
@@ -310,6 +317,7 @@ export function ChatThreadScreen({
 			}
 		};
 		return () => {
+			live = false;
 			ws.close();
 			wsRef.current = null;
 			window.clearTimeout(typeTimer.current);
@@ -317,9 +325,52 @@ export function ChatThreadScreen({
 		};
 	}, [chat.id, me.id]);
 
+	function pinToLatest() {
+		const el = scroller.current;
+		if (!el) return;
+		el.scrollTop = el.scrollHeight;
+	}
+
+	useLayoutEffect(() => {
+		followBottom.current = true;
+	}, [chat.id]);
+
+	useLayoutEffect(() => {
+		const pin = () => {
+			if (followBottom.current) pinToLatest();
+		};
+		pin();
+		const raf = requestAnimationFrame(() => {
+			pin();
+			requestAnimationFrame(pin);
+		});
+		const t = window.setTimeout(pin, 80);
+		const t2 = window.setTimeout(pin, 240);
+		return () => {
+			cancelAnimationFrame(raf);
+			window.clearTimeout(t);
+			window.clearTimeout(t2);
+		};
+	}, [msgs.length, chat.id]);
+
 	useEffect(() => {
-		bottom.current?.scrollIntoView({ behavior: "smooth" });
-	}, [msgs.length]);
+		const el = scroller.current;
+		const inner = stack.current;
+		if (!el || !inner) return;
+		const pin = () => {
+			if (followBottom.current) pinToLatest();
+		};
+		const ro = new ResizeObserver(pin);
+		ro.observe(el);
+		ro.observe(inner);
+		return () => ro.disconnect();
+	}, [chat.id]);
+
+	function onThreadScroll() {
+		const el = scroller.current;
+		if (!el) return;
+		followBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+	}
 
 	function pingTyping() {
 		if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify({ type: "typing" }));
@@ -341,6 +392,7 @@ export function ChatThreadScreen({
 			display_name: me.display_name,
 			skullmoji: me.skullmoji,
 		};
+		followBottom.current = true;
 		upsertMsg(local);
 		const r = await api<{ id: string }>(`/api/chats/${chat.id}/messages`, {
 			method: "POST",
@@ -425,30 +477,31 @@ export function ChatThreadScreen({
 				<button className="icon-btn ghost" onClick={() => onCall("video")} aria-label="Video"><Icon name="video" size={18} /></button>
 				<button className="icon-btn ghost" onClick={onBack} aria-label="Close"><Icon name="chevron" size={18} /></button>
 			</div>
-			<div className="msgs">
-				{groupMsgs(msgs).map((group) => {
-					const lead = group[0];
-					const mine = lead.sender_id === me.id;
-					const color = nameColor(lead.sender_id, mine);
-					return (
-						<div key={lead.id} className={`chat-block ${mine ? "mine" : ""} ${group.some((x) => x.saved) ? "saved" : ""}`}>
-							<i className="chat-accent" style={{ background: color }} />
-							<div className="chat-block-body">
-								<div className="chat-who" style={{ color }}>
-									{mine ? "ME" : (
-										<DisplayName name={firstName(lead.display_name)} username={lead.username} kindling={lead.kindling} />
-									)}
+			<div className="msgs" ref={scroller} onScroll={onThreadScroll}>
+				<div className="msgs-stack" ref={stack}>
+					{groupMsgs(msgs).map((group) => {
+						const lead = group[0];
+						const mine = lead.sender_id === me.id;
+						const color = nameColor(lead.sender_id, mine);
+						return (
+							<div key={lead.id} className={`chat-block ${mine ? "mine" : ""} ${group.some((x) => x.saved) ? "saved" : ""}`}>
+								<i className="chat-accent" style={{ background: color }} />
+								<div className="chat-block-body">
+									<div className="chat-who" style={{ color }}>
+										{mine ? "ME" : (
+											<DisplayName name={firstName(lead.display_name)} username={lead.username} kindling={lead.kindling} />
+										)}
+									</div>
+									{group.map((m) => (
+										<button key={m.id} className="chat-line" onClick={() => void toggleSave(m)}>
+											{renderBody(m)}
+										</button>
+									))}
 								</div>
-								{group.map((m) => (
-									<button key={m.id} className="chat-line" onClick={() => void toggleSave(m)}>
-										{renderBody(m)}
-									</button>
-								))}
 							</div>
-						</div>
-					);
-				})}
-				<div ref={bottom} />
+						);
+					})}
+				</div>
 			</div>
 			<div className="presence-row">
 				{people.map((p) => {
