@@ -86,7 +86,9 @@ export function reloadForLiveBuild(id: string): void {
 	} catch {
 		return;
 	}
-	location.reload();
+	const u = new URL(location.href);
+	u.searchParams.set("live", id);
+	location.replace(u.toString());
 }
 
 export async function uploadMedia(blob: Blob): Promise<{ key: string; url: string }> {

@@ -8,12 +8,22 @@ export const chatFieldProps = {
 	spellCheck: true,
 	enterKeyHint: "send" as const,
 	inputMode: "text" as const,
+	name: "pyre-msg",
+	"aria-autocomplete": "none" as const,
+	"data-lpignore": "true",
+	"data-1p-ignore": "true",
+	"data-form-type": "other",
+	"data-bwignore": "true",
 };
 
 export function bootNativeShell(): void {
 	bindKeyboardInset();
 	if (!Capacitor.isNativePlatform()) return;
 	void hideKeyboardChrome();
+	void pullLiveWebView();
+	window.setInterval(() => {
+		if (document.visibilityState === "visible") void pullLiveWebView();
+	}, 60_000);
 	void import("@capacitor/keyboard").then(({ Keyboard }) => {
 		void Keyboard.addListener("keyboardWillShow", () => {
 			void hideKeyboardChrome();
@@ -68,7 +78,11 @@ async function pullLiveWebView(): Promise<void> {
 		const origin = apiOrigin() || location.origin;
 		const html = await fetch(`${origin}/?_=${Date.now()}`, { cache: "no-store", credentials: "omit" }).then((r) => r.text());
 		const next = html.match(/\/assets\/(index-[A-Za-z0-9_-]+\.js)/)?.[1];
-		if (next && next !== cur) location.reload();
+		if (next && next !== cur) {
+			const u = new URL(location.href);
+			u.searchParams.set("v", next.replace(/\W/g, ""));
+			location.replace(u.toString());
+		}
 	} catch {
 		/* offline: stay on the current WebView */
 	}

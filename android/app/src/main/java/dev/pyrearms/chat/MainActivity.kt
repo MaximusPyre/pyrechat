@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.autofill.AutofillManager
 import android.webkit.WebSettings
 import com.getcapacitor.BridgeActivity
 import com.snap.camerakit.support.app.CameraActivity
@@ -30,6 +31,8 @@ class MainActivity : BridgeActivity() {
 		val webView = bridge?.webView ?: return
 		if (Build.VERSION.SDK_INT >= 26) {
 			webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+			window.decorView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+			getSystemService(AutofillManager::class.java)?.cancel()
 		}
 		webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
 		@Suppress("DEPRECATION")

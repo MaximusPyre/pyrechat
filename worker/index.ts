@@ -15,6 +15,12 @@ export default {
 			}
 			return res;
 		}
+		if (url.pathname === "/" || url.pathname === "/index.html") {
+			const res = await env.ASSETS.fetch(request);
+			const headers = new Headers(res.headers);
+			headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+			return new Response(res.body, { status: res.status, headers });
+		}
 		return app.fetch(request, env, ctx);
 	},
 	async scheduled(_controller, env, ctx) {

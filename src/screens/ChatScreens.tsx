@@ -477,15 +477,13 @@ export function ChatThreadScreen({
 			<div className="composer">
 				<button type="button" className="composer-cam" onClick={onSnap} aria-label="Camera"><Icon name="cam" size={22} /></button>
 				<div className="composer-field">
-					<input
+					<textarea
 						{...chatFieldProps}
+						rows={1}
 						value={text}
 						placeholder="Send a Chat"
-						data-lpignore="true"
-						data-1p-ignore="true"
-						data-form-type="other"
 						onKeyDown={(e) => {
-							if (e.key === "Enter") {
+							if (e.key === "Enter" && !e.shiftKey) {
 								e.preventDefault();
 								void send();
 							}
