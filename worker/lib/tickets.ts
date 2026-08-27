@@ -113,7 +113,13 @@ export function publicTicket(row: TicketRow, attachments: AttachmentRow[] = []) 
 }
 
 export function sanitizeTicketFilename(raw: string): string {
-	const base = raw.replace(/\\/g, "/").split("/").pop() || "attachment";
+	let name = raw || "attachment";
+	try {
+		name = decodeURIComponent(name);
+	} catch {
+		/* keep raw */
+	}
+	const base = name.replace(/\\/g, "/").split("/").pop() || "attachment";
 	return base.replace(/[^\w.\- ()[\]]+/g, "_").slice(0, 120) || "attachment";
 }
 
@@ -122,6 +128,23 @@ export function ticketFileType(header: string, filename: string): string | null 
 	if (TICKET_TYPES.has(ct)) return ct === "image/jpg" ? "image/jpeg" : ct;
 	const m = filename.toLowerCase().match(/\.([a-z0-9]+)$/);
 	return (m && TICKET_EXT[m[1]]) || null;
+}
+
+export function sniffTicketType(buf: ArrayBuffer, header: string, filename: string): string | null {
+	const named = ticketFileType(header, filename);
+	if (named) return named;
+	if (buf.byteLength < 12) return null;
+	const u = new Uint8Array(buf.slice(0, 16));
+	if (u[0] === 0xff && u[1] === 0xd8 && u[2] === 0xff) return "image/jpeg";
+	if (u[0] === 0x89 && u[1] === 0x50 && u[2] === 0x4e && u[3] === 0x47) return "image/png";
+	if (u[0] === 0x47 && u[1] === 0x49 && u[2] === 0x46) return "image/gif";
+	if (u[0] === 0x52 && u[1] === 0x49 && u[2] === 0x46 && u[3] === 0x46 && u[8] === 0x57 && u[9] === 0x45) return "image/webp";
+	if (u[4] === 0x66 && u[5] === 0x74 && u[6] === 0x79 && u[7] === 0x70) {
+		const brand = String.fromCharCode(u[8], u[9], u[10], u[11]).toLowerCase();
+		if (brand.startsWith("hei") || brand === "mif1" || brand === "msf1") return "image/heic";
+	}
+	if (u[0] === 0x25 && u[1] === 0x50 && u[2] === 0x44 && u[3] === 0x46) return "application/pdf";
+	return null;
 }
 
 export async function serveTicketAttachment(env: Env, att: AttachmentRow): Promise<Response> {
