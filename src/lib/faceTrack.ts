@@ -1,4 +1,5 @@
 import { FaceLandmarker, FilesetResolver, type FaceLandmarkerResult } from "@mediapipe/tasks-vision";
+import { EMBER, INK } from "./brand";
 
 const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm";
 const MODEL =
@@ -148,7 +149,7 @@ function drawLens(ctx: CanvasRenderingContext2D, pts: Pt[], w: number, h: number
 		ctx.beginPath();
 		ctx.ellipse(cx, cy - ry * 0.08, rx, ry, 0, 0, Math.PI * 2);
 		ctx.stroke();
-		ctx.fillStyle = "#0c0c0e";
+		ctx.fillStyle = INK;
 		ctx.beginPath();
 		ctx.ellipse(leftEye.x, leftEye.y, eyeSpan * 0.16, eyeSpan * 0.2, 0, 0, Math.PI * 2);
 		ctx.ellipse(rightEye.x, rightEye.y, eyeSpan * 0.16, eyeSpan * 0.2, 0, 0, Math.PI * 2);
@@ -163,7 +164,7 @@ function drawLens(ctx: CanvasRenderingContext2D, pts: Pt[], w: number, h: number
 	}
 
 	if (lens === "fire") {
-		ctx.fillStyle = "#ff6a1a";
+		ctx.fillStyle = EMBER;
 		for (let i = 0; i < 5; i++) {
 			const t = (i - 2) / 2;
 			const x = forehead.x + t * eyeSpan * 0.45;
@@ -187,7 +188,7 @@ function drawLens(ctx: CanvasRenderingContext2D, pts: Pt[], w: number, h: number
 		const y = forehead.y - faceH * 0.12;
 		const x0 = forehead.x - eyeSpan * 0.7;
 		const x1 = forehead.x + eyeSpan * 0.7;
-		ctx.fillStyle = "#e85d12";
+		ctx.fillStyle = EMBER;
 		ctx.strokeStyle = "#ffd27a";
 		ctx.lineWidth = 2;
 		ctx.beginPath();
@@ -221,15 +222,15 @@ function drawLens(ctx: CanvasRenderingContext2D, pts: Pt[], w: number, h: number
 
 	if (lens === "ember") {
 		const glow = ctx.createRadialGradient(leftCheek.x, leftCheek.y, 4, leftCheek.x, leftCheek.y, faceH * 0.22);
-		glow.addColorStop(0, "#ff6a1a88");
-		glow.addColorStop(1, "#ff6a1a00");
+		glow.addColorStop(0, `${EMBER}88`);
+		glow.addColorStop(1, `${EMBER}00`);
 		ctx.fillStyle = glow;
 		ctx.beginPath();
 		ctx.arc(leftCheek.x, leftCheek.y, faceH * 0.22, 0, Math.PI * 2);
 		ctx.fill();
 		const glow2 = ctx.createRadialGradient(rightCheek.x, rightCheek.y, 4, rightCheek.x, rightCheek.y, faceH * 0.22);
-		glow2.addColorStop(0, "#ff6a1a88");
-		glow2.addColorStop(1, "#ff6a1a00");
+		glow2.addColorStop(0, `${EMBER}88`);
+		glow2.addColorStop(1, `${EMBER}00`);
 		ctx.fillStyle = glow2;
 		ctx.beginPath();
 		ctx.arc(rightCheek.x, rightCheek.y, faceH * 0.22, 0, Math.PI * 2);

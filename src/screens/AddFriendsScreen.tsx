@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { Icon } from "../components/Icon";
 import { SkullmojiAvatar } from "../components/Skull";
+import { DisplayName } from "../components/DisplayName";
 
-type Person = { id: string; username: string; display_name: string; skullmoji: string };
+type Person = { id: string; username: string; display_name: string; skullmoji: string; kindling?: number | boolean };
 type Pane = "home" | "sent" | "hidden" | "deleted";
 
 const HOME_PREVIEW = 8;
@@ -331,7 +332,7 @@ function PersonRow({
 		<div className={`add-person${busy ? " busy" : ""}`}>
 			<SkullmojiAvatar value={person.skullmoji} size={48} />
 			<div className="add-person-meta">
-				<div className="add-name">{person.display_name}</div>
+				<div className="add-name"><DisplayName name={person.display_name} username={person.username} kindling={person.kindling} /></div>
 				<div className="add-user">@{person.username}</div>
 				{source ? <div className="add-src">{source}</div> : null}
 			</div>

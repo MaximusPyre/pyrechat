@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { INK, TEAL } from "../lib/brand";
 import type { User } from "../lib/types";
 import { Icon } from "../components/Icon";
+import "leaflet/dist/leaflet.css";
 
 type FriendPin = {
 	id: string;
@@ -42,18 +44,18 @@ export function MapScreen({ me, onProfile }: { me: User; onProfile: () => void }
 			setMode(data.mapMode);
 			setCount(data.friends.length);
 			if (data.me) {
-				L.circleMarker([data.me.lat, data.me.lng], { radius: 10, color: "#ff6a1a", fillColor: "#ff6a1a", fillOpacity: 1 }).addTo(map);
+				L.circleMarker([data.me.lat, data.me.lng], { radius: 10, color: TEAL, fillColor: TEAL, fillOpacity: 1 }).addTo(map);
 			}
 			for (const f of data.friends) {
 				const icon = L.divIcon({
 					className: "",
-					html: `<div style="width:36px;height:36px;border-radius:50%;background:#111;border:2px solid #ff6a1a"></div>`,
+					html: `<div style="width:36px;height:36px;border-radius:50%;background:${INK};border:2px solid ${TEAL}"></div>`,
 					iconSize: [36, 36],
 				});
 				L.marker([f.lat, f.lng], { icon }).addTo(map).bindPopup(`${f.display_name} · ${f.activity}`);
 			}
 			for (const h of data.hotspots || []) {
-				L.circleMarker([h.lat, h.lng], { radius: 8 + Math.min(h.n, 12), color: "#ff6a1a", fillOpacity: 0.25 }).addTo(map);
+				L.circleMarker([h.lat, h.lng], { radius: 8 + Math.min(h.n, 12), color: TEAL, fillOpacity: 0.25 }).addTo(map);
 			}
 		})();
 		return () => {

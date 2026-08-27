@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 import { Camera } from "@capacitor/camera";
 import { Capacitor } from "@capacitor/core";
 import { api, uploadMedia } from "../lib/api";
+import { EMBER, TEAL } from "../lib/brand";
 import {
 	detectFace,
 	drawCaptureFrame,
@@ -46,6 +47,43 @@ function recMime(): string | undefined {
 	return opts.find((t) => MediaRecorder.isTypeSupported(t));
 }
 
+function revokePreview(url: string): void {
+	if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+}
+
+function blobToPreviewUrl(blob: Blob): Promise<string> {
+	if (!Capacitor.isNativePlatform()) return Promise.resolve(URL.createObjectURL(blob));
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result));
+		reader.onerror = () => reject(reader.error);
+		reader.readAsDataURL(blob);
+	});
+}
+
+function dataUrlToBlob(url: string, type: string): Blob {
+	const bin = atob((url.split(",")[1] || ""));
+	const bytes = new Uint8Array(bin.length);
+	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+	return new Blob([bytes], { type });
+}
+
+async function canvasToJpeg(src: HTMLCanvasElement): Promise<{ blob: Blob; url: string } | null> {
+	if (!src.width || !src.height) return null;
+	const off = document.createElement("canvas");
+	off.width = src.width;
+	off.height = src.height;
+	const ctx = off.getContext("2d", { alpha: false, willReadFrequently: true });
+	if (!ctx) return null;
+	ctx.drawImage(src, 0, 0);
+	const blob = await new Promise<Blob | null>((res) => off.toBlob(res, "image/jpeg", 0.92));
+	if (blob && blob.size > 64) {
+		return { blob, url: await blobToPreviewUrl(blob) };
+	}
+	const url = off.toDataURL("image/jpeg", 0.92);
+	return { blob: dataUrlToBlob(url, "image/jpeg"), url };
+}
+
 export function CameraScreen({
 	onOpenMemories,
 }: {
@@ -76,6 +114,7 @@ export function CameraScreen({
 	const [sendOpen, setSendOpen] = useState(false);
 	const [friends, setFriends] = useState<Friend[]>([]);
 	const [picked, setPicked] = useState<Set<string>>(new Set());
+	const [hasInk, setHasInk] = useState(false);
 
 	const facingRef = useRef(facing);
 	const gradeRef = useRef(grade);
@@ -158,7 +197,7 @@ export function CameraScreen({
 				canvas.height = video.videoHeight;
 			}
 			if (!canvas.width) return;
-			const ctx = canvas.getContext("2d", { alpha: false });
+			const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
 			if (!ctx) return;
 			const mirror = facingRef.current === "user";
 			if (now !== last) {
@@ -180,17 +219,21 @@ export function CameraScreen({
 		return () => cancelAnimationFrame(id);
 	}, [capture, camState]);
 
-	function snapPhoto() {
+	useEffect(() => {
+		const canvas = drawRef.current;
+		if (!canvas || !capture) return;
+		const ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: true });
+		if (ctx && !hasInk) ctx.clearRect(0, 0, canvas.width, canvas.height);
+	}, [capture, hasInk, pen]);
+
+	async function snapPhoto() {
 		const canvas = liveRef.current;
 		if (!canvas?.width) return;
-		canvas.toBlob(
-			(blob) => {
-				if (!blob) return;
-				setCapture({ blob, url: URL.createObjectURL(blob), kind: "photo" });
-			},
-			"image/jpeg",
-			0.92,
-		);
+		const shot = await canvasToJpeg(canvas);
+		if (!shot) return;
+		setHasInk(false);
+		setPen(false);
+		setCapture({ blob: shot.blob, url: shot.url, kind: "photo" });
 	}
 
 	function startRec() {
@@ -209,7 +252,12 @@ export function CameraScreen({
 			drawn.getVideoTracks().forEach((t) => t.stop());
 			recRef.current = null;
 			const blob = new Blob(chunksRef.current, { type: mime || "video/webm" });
-			if (blob.size) setCapture({ blob, url: URL.createObjectURL(blob), kind: "video" });
+			if (!blob.size) return;
+			void blobToPreviewUrl(blob).then((url) => {
+				setHasInk(false);
+				setPen(false);
+				setCapture({ blob, url, kind: "video" });
+			});
 		};
 		rec.start();
 		recRef.current = rec;
@@ -239,14 +287,14 @@ export function CameraScreen({
 		shutterArmed.current = false;
 		window.clearTimeout(holdTimer.current);
 		if (held.current) stopRec();
-		else snapPhoto();
+		else void snapPhoto();
 		held.current = false;
 	}
 
 	function onPointer(e: PointerEvent<HTMLCanvasElement>) {
 		if (!pen || !drawRef.current) return;
 		const canvas = drawRef.current;
-		const ctx = canvas.getContext("2d");
+		const ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: true });
 		if (!ctx) return;
 		const r = canvas.getBoundingClientRect();
 		const x = ((e.clientX - r.left) / r.width) * canvas.width;
@@ -257,11 +305,12 @@ export function CameraScreen({
 			ctx.moveTo(x, y);
 			canvas.setPointerCapture(e.pointerId);
 		} else if (e.type === "pointermove" && drawing) {
-			ctx.strokeStyle = "#ff6a1a";
+			ctx.strokeStyle = EMBER;
 			ctx.lineWidth = 6;
 			ctx.lineCap = "round";
 			ctx.lineTo(x, y);
 			ctx.stroke();
+			setHasInk(true);
 		} else {
 			setDrawing(false);
 		}
@@ -304,19 +353,33 @@ export function CameraScreen({
 			await api("/api/memories", { method: "POST", body: JSON.stringify({ mediaKey: key, kind: capture.kind, caption }) });
 		}
 		setSendOpen(false);
+		revokePreview(capture.url);
 		setCapture(null);
 		setCaption("");
 		setStickers([]);
 		setPicked(new Set());
+		setHasInk(false);
+		setPen(false);
 	}
 
 	if (capture) {
 		return (
 			<div className="editor">
 				{capture.kind === "video" ? (
-					<video className="preview" src={capture.url} autoPlay loop muted playsInline />
+					<video
+						className="preview"
+						src={capture.url}
+						autoPlay
+						loop
+						muted
+						playsInline
+						{...{ "webkit-playsinline": "true" }}
+						onLoadedMetadata={(e) => {
+							void e.currentTarget.play().catch(() => undefined);
+						}}
+					/>
 				) : (
-					<img src={capture.url} alt="" />
+					<img src={capture.url} alt="" draggable={false} />
 				)}
 				<canvas
 					ref={drawRef}
@@ -326,7 +389,11 @@ export function CameraScreen({
 					onPointerDown={onPointer}
 					onPointerMove={onPointer}
 					onPointerUp={onPointer}
-					style={{ pointerEvents: pen ? "auto" : "none" }}
+					style={{
+						pointerEvents: pen ? "auto" : "none",
+						visibility: pen || hasInk ? "visible" : "hidden",
+						background: "transparent",
+					}}
 				/>
 				{stickers.map((s) => (
 					<button
@@ -353,11 +420,11 @@ export function CameraScreen({
 					<input className="caption" autoFocus placeholder="Tap to type" value={caption} onChange={(e) => setCaption(e.target.value)} />
 				)}
 				<div className="editor-top">
-					<button className="icon-btn" onClick={() => { URL.revokeObjectURL(capture.url); setCapture(null); }}>
+					<button className="icon-btn" onClick={() => { revokePreview(capture.url); setCapture(null); setHasInk(false); setPen(false); }}>
 						<Icon name="close" />
 					</button>
 					<button className="icon-btn" onClick={() => setShowText((v) => !v)}><Icon name="text" /></button>
-					<button className="icon-btn" onClick={() => setPen((v) => !v)}><Icon name="pen" color={pen ? "#ff6a1a" : "#fff"} /></button>
+					<button className="icon-btn" onClick={() => setPen((v) => !v)}><Icon name="pen" color={pen ? EMBER : "#fff"} /></button>
 					<button className="icon-btn" onClick={() => setTimer((t) => (t >= 10 ? 1 : t + 1))}><Icon name="timer" /></button>
 					<button className="icon-btn" onClick={() => {
 						const a = document.createElement("a");
@@ -390,7 +457,7 @@ export function CameraScreen({
 								}}>
 									<SkullmojiAvatar value={f.skullmoji} />
 									<div className="row-body"><div className="row-title">{f.display_name}</div></div>
-									{picked.has(f.id) ? <Icon name="check" color="#ff6a1a" /> : null}
+									{picked.has(f.id) ? <Icon name="check" color={TEAL} /> : null}
 								</button>
 							))}
 							<div style={{ display: "flex", gap: 8, padding: 12, flexWrap: "wrap" }}>
@@ -423,7 +490,7 @@ export function CameraScreen({
 			<canvas ref={liveRef} className="live" style={{ opacity: painted ? 1 : 0 }} />
 			{blocked && (
 				<div className="perm-card">
-					<Icon name="cam" size={36} color="#ff6a1a" />
+					<Icon name="cam" size={36} color={TEAL} />
 					<h2>{camState === "missing" ? "No camera found" : "Camera is blocked"}</h2>
 					<p>
 						{camState === "missing"

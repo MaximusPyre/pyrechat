@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { api, mediaUrl, uploadMedia } from "../lib/api";
 import type { ChatRow } from "../lib/types";
 import { Icon } from "../components/Icon";
+import { DisplayName } from "../components/DisplayName";
 import { SkullmojiAvatar } from "../components/Skull";
+import { AccountNotices, AppNoticeBanner, GetAppCard, NativeUpdateBanner } from "../components/GetApp";
 import { openSocket } from "../lib/ws";
 
 function statusOf(c: ChatRow): { cls: string; text: string } {
@@ -27,11 +29,13 @@ export function ChatListScreen({
 	onSearch,
 	onAdd,
 	refreshKey = 0,
+	activeId,
 }: {
 	onOpen: (chat: ChatRow) => void;
 	onSearch: () => void;
 	onAdd: () => void;
 	refreshKey?: number;
+	activeId?: string | null;
 }) {
 	const [chats, setChats] = useState<ChatRow[]>([]);
 	useEffect(() => {
@@ -50,15 +54,21 @@ export function ChatListScreen({
 				</div>
 			</div>
 			<div className="list inset">
+				<NativeUpdateBanner />
+				<AppNoticeBanner />
+				<AccountNotices refreshKey={refreshKey} />
+				<GetAppCard />
 				{chats.length === 0 && <div className="empty">Add friends to start chatting.</div>}
 				{chats.map((c) => {
 					const st = statusOf(c);
 					const title = c.is_group ? c.name || "Group" : c.members[0]?.display_name || "Chat";
 					return (
-						<button key={c.id} className="row" onClick={() => onOpen(c)}>
+						<button key={c.id} className={`row ${c.id === activeId ? "on" : ""}`} onClick={() => onOpen(c)}>
 							<SkullmojiAvatar value={c.members[0]?.skullmoji} ring={!!c.unopenedSnaps} />
 							<div className="row-body">
-								<div className="row-title">{title}</div>
+								<div className="row-title">
+									<DisplayName name={title} username={c.is_group ? undefined : c.members[0]?.username} kindling={c.is_group ? undefined : c.members[0]?.kindling} />
+								</div>
 								<div className="row-sub">
 									<i className={`status-dot ${st.cls}`} />
 									{st.text}
@@ -83,13 +93,15 @@ type Msg = {
 	media_key: string | null;
 	created_at: string;
 	saved: number;
+	username?: string;
 	display_name: string;
 	skullmoji?: unknown;
+	kindling?: number | boolean;
 };
 
-type Me = { id: string; display_name: string; skullmoji: unknown };
+type Me = { id: string; username?: string; display_name: string; skullmoji: unknown; kindling?: number | boolean };
 
-const PALETTE = ["#3d9ee8", "#e14b4b", "#2bbbad", "#a78bfa", "#e85d12", "#f0c14a", "#7dd3a0", "#ff7ab6"];
+const PALETTE = ["#5b9aa3", "#c45e32", "#4d8a8e", "#8b9aa3", "#d4895c", "#7eb0b3", "#9b958c", "#c47a6a"];
 const STICKERS = ["🔥", "☠", "💀", "🧡", "⚡", "😈", "🖤", "✨", "😂", "💋"];
 
 function nameColor(id: string, isMe: boolean): string {
@@ -137,9 +149,13 @@ export function ChatThreadScreen({
 	const wsRef = useRef<WebSocket | null>(null);
 	const typeTimer = useRef(0);
 	const peerTimers = useRef<Map<string, number>>(new Map());
-	const fileRef = useRef<HTMLInputElement>(null);
 	const title = chat.is_group ? chat.name || "Group" : chat.members[0]?.display_name || "Chat";
-	const people: Me[] = [...chat.members.map((m) => ({ id: m.id, display_name: m.display_name, skullmoji: m.skullmoji })), me];
+	const titleUser = chat.is_group ? undefined : chat.members[0]?.username;
+	const titleKindling = chat.is_group ? undefined : chat.members[0]?.kindling;
+	const people: Me[] = [
+		...chat.members.map((m) => ({ id: m.id, username: m.username, display_name: m.display_name, skullmoji: m.skullmoji, kindling: m.kindling })),
+		me,
+	];
 
 	function upsertMsg(incoming: Msg) {
 		setMsgs((all) => {
@@ -285,6 +301,18 @@ export function ChatThreadScreen({
 		await post(file.type.startsWith("video") ? "video" : "image", "", key);
 	}
 
+	function pickAttachment() {
+		const el = document.createElement("input");
+		el.type = "file";
+		el.accept = "image/*,video/*";
+		el.onchange = () => {
+			const f = el.files?.[0];
+			el.remove();
+			if (f) void sendFile(f);
+		};
+		el.click();
+	}
+
 	async function toggleSave(m: Msg) {
 		if (m.id.startsWith("tmp-")) return;
 		if (m.saved) await api(`/api/messages/${m.id}/save`, { method: "DELETE" });
@@ -311,7 +339,7 @@ export function ChatThreadScreen({
 				<button className="thread-who" onClick={onFriend}>
 					<SkullmojiAvatar value={chat.members[0]?.skullmoji || me.skullmoji} size={36} />
 					<div>
-						<div className="thread-title">{title}</div>
+						<div className="thread-title"><DisplayName name={title} username={titleUser} kindling={titleKindling} /></div>
 						{chat.streak > 0 && <div className="thread-sub">🔥 {chat.streak} day streak</div>}
 					</div>
 				</button>
@@ -328,7 +356,11 @@ export function ChatThreadScreen({
 						<div key={lead.id} className={`chat-block ${mine ? "mine" : ""} ${group.some((x) => x.saved) ? "saved" : ""}`}>
 							<i className="chat-accent" style={{ background: color }} />
 							<div className="chat-block-body">
-								<div className="chat-who" style={{ color }}>{mine ? "ME" : firstName(lead.display_name)}</div>
+								<div className="chat-who" style={{ color }}>
+									{mine ? "ME" : (
+										<DisplayName name={firstName(lead.display_name)} username={lead.username} kindling={lead.kindling} />
+									)}
+								</div>
 								{group.map((m) => (
 									<button key={m.id} className="chat-line" onClick={() => void toggleSave(m)}>
 										{renderBody(m)}
@@ -352,7 +384,7 @@ export function ChatThreadScreen({
 									<SkullmojiAvatar value={p.skullmoji} size={28} />
 								</span>
 							)}
-							{p.id === me.id ? "ME" : firstName(p.display_name)}
+							{p.id === me.id ? "ME" : <DisplayName name={firstName(p.display_name)} username={p.username} kindling={p.kindling} />}
 						</div>
 					);
 				})}
@@ -365,32 +397,27 @@ export function ChatThreadScreen({
 				</div>
 			)}
 			<div className="composer">
-				<button className="composer-cam" onClick={onSnap} aria-label="Camera"><Icon name="cam" size={22} /></button>
-				<div className="composer-field">
+				<button type="button" className="composer-cam" onClick={onSnap} aria-label="Camera"><Icon name="cam" size={22} /></button>
+				<form className="composer-field" autoComplete="off" onSubmit={(e) => { e.preventDefault(); void send(); }}>
 					<input
 						value={text}
+						name="pyre-chat"
+						autoComplete="off"
+						autoCorrect="on"
+						autoCapitalize="sentences"
+						spellCheck
+						enterKeyHint="send"
+						inputMode="text"
 						onChange={(e) => {
 							setText(e.target.value);
 							pingTyping();
 						}}
 						placeholder="Send a Chat"
-						onKeyDown={(e) => e.key === "Enter" && void send()}
 					/>
-					<button className="icon-btn ghost" onClick={() => void voiceNote()} aria-label="Voice"><Icon name="mic" size={18} /></button>
-					<button className="icon-btn ghost" onClick={() => setStickersOpen((v) => !v)} aria-label="Stickers"><Icon name="sticker" size={18} /></button>
-				</div>
-				<button className="icon-btn ghost" onClick={() => fileRef.current?.click()} aria-label="Gallery"><Icon name="mem" size={20} /></button>
-				<input
-					ref={fileRef}
-					type="file"
-					accept="image/*,video/*"
-					hidden
-					onChange={(e) => {
-						const f = e.target.files?.[0];
-						e.target.value = "";
-						if (f) void sendFile(f);
-					}}
-				/>
+					<button type="button" className="icon-btn ghost" onClick={() => void voiceNote()} aria-label="Voice"><Icon name="mic" size={18} /></button>
+					<button type="button" className="icon-btn ghost" onClick={() => setStickersOpen((v) => !v)} aria-label="Stickers"><Icon name="sticker" size={18} /></button>
+				</form>
+				<button type="button" className="icon-btn ghost" onClick={pickAttachment} aria-label="Gallery"><Icon name="mem" size={20} /></button>
 			</div>
 		</div>
 	);

@@ -1,3 +1,5 @@
+import { FOUNDER_DISPLAY, FOUNDER_USERNAME, founderBlocked, isFounderUsername } from "./lib/founder.js";
+import { bumpMetric, track, trackRequest } from "./lib/metrics.js";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
@@ -20,9 +22,12 @@ import {
 import {
 	clearSessionCookies,
 	createSession,
+	generateRecoveryKey,
 	hashPassword,
+	hashRecoveryKey,
 	meUser,
 	publicUser,
+	recoveryKeyMatches,
 	requireUser,
 	secretEqual,
 	sessionCookie,
@@ -30,6 +35,18 @@ import {
 	type AuthedUser,
 } from "./lib/auth.js";
 import { rateLimited } from "./lib/limit.js";
+import { isBetaOpen, isEarlyCohort } from "./lib/env.js";
+import {
+	androidRelease,
+	applyTicketResult,
+	bearerToken,
+	dispatchTicketWebhook,
+	latestAppNotice,
+	publicTicket,
+	verifyTicketCallbackToken,
+	type TicketKind,
+	type TicketRow,
+} from "./lib/tickets.js";
 import {
 	bad,
 	bumpScore,
@@ -53,21 +70,24 @@ app.use(
 	cors({
 		origin: (origin) => corsOrigin(origin) ?? "",
 		credentials: true,
-		allowHeaders: ["Content-Type"],
+		allowHeaders: ["Content-Type", "Authorization"],
 		allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 	}),
 );
 
 app.use("/api/*", async (c, next) => {
 	const method = c.req.method;
-	if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS" && !originAllowed(c.req.raw)) {
+	const internal = c.req.path.startsWith("/api/internal/");
+	if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS" && !internal && !originAllowed(c.req.raw)) {
 		return bad("Forbidden", 403);
 	}
-	return next();
+	await next();
+	trackRequest(c.env, c.req.raw, c.res.status);
 });
 
-app.onError((err, _c) => {
-	console.error(err);
+app.onError((err, c) => {
+	const msg = err instanceof Error ? err.message : String(err);
+	console.error(c.req.method, c.req.path, msg);
 	return json({ error: "Server error" }, 500);
 });
 
@@ -92,6 +112,8 @@ app.post("/api/auth/signup", async (c) => {
 	const birthday = (body.birthday || "").trim();
 	const age = ageYears(birthday);
 	if (!USERNAME_RE.test(username)) return bad("Username must be 3–24 letters, numbers, dots, or underscores");
+	const reserved = founderBlocked(displayName, username, "");
+	if (reserved) return bad(reserved, 403);
 	if (password.length < MIN_PASSWORD) return bad(`Password must be at least ${MIN_PASSWORD} characters`);
 	if (password.length > 200) return bad("Password is too long");
 	if (age === null) return bad("Enter a valid birthday");
@@ -100,18 +122,31 @@ app.post("/api/auth/signup", async (c) => {
 	if (exists) return bad("Username taken", 409);
 	const id = crypto.randomUUID();
 	const skullmoji = JSON.stringify({
-		color: "#FF6A1A",
+		color: "#c45e32",
 		eyes: "hollow",
 		jaw: "grin",
 		hat: "none",
-		bg: "#111111",
+		bg: "#1c2124",
 	});
+	const kindling = isEarlyCohort(c.env) && !isFounderUsername(username) ? 1 : 0;
+	const recoveryKey = generateRecoveryKey();
 	try {
 		await c.env.DB.prepare(
-			`INSERT INTO users (id, username, display_name, password_hash, birthday, skullmoji, created_at, last_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO users (id, username, display_name, password_hash, birthday, skullmoji, created_at, last_active, kindling, recovery_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
-			.bind(id, username, displayName, await hashPassword(password), birthday, skullmoji, nowIso(), nowIso())
+			.bind(
+				id,
+				username,
+				displayName,
+				await hashPassword(password),
+				birthday,
+				skullmoji,
+				nowIso(),
+				nowIso(),
+				kindling,
+				await hashRecoveryKey(recoveryKey),
+			)
 			.run();
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
@@ -121,11 +156,13 @@ app.post("/api/auth/signup", async (c) => {
 	const token = await createSession(c.env, id, c.req.raw);
 	const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first<AuthedUser>();
 	if (!user) return bad("Could not create account", 500);
-	return withCookies(json({ user: meUser(user) }), sessionCookie(token, c.req.raw));
+	c.executionCtx.waitUntil(bumpMetric(c.env, "signup"));
+	track(c.env, "signup");
+	return withCookies(json({ user: meUser(user, c.env), recoveryKey }), sessionCookie(token, c.req.raw));
 });
 
 app.post("/api/auth/login", async (c) => {
-	if (await rateLimited(c.req.raw, "login", 10, 900)) return bad("Too many attempts", 429);
+	if (await rateLimited(c.req.raw, "login", 20, 900, "check")) return bad("Too many attempts", 429);
 	let body: { username?: string; password?: string };
 	try {
 		body = await c.req.json();
@@ -133,12 +170,18 @@ app.post("/api/auth/login", async (c) => {
 		return bad("Invalid request");
 	}
 	const username = normUsername(body.username || "");
+	const founder = isFounderUsername(username);
+	if (founder && (await rateLimited(c.req.raw, "founder-login", 8, 1800, "check"))) {
+		return bad("Too many attempts", 429);
+	}
 	const password = body.password || "";
 	if (!username || !password) return bad("Enter username and password");
 	const user = await c.env.DB.prepare("SELECT * FROM users WHERE username = ? COLLATE NOCASE")
 		.bind(username)
 		.first<AuthedUser & { password_hash: string }>();
 	if (!user || !(await verifyPassword(password, user.password_hash))) {
+		await rateLimited(c.req.raw, "login", 20, 900, "hit");
+		if (founder) await rateLimited(c.req.raw, "founder-login", 8, 1800, "hit");
 		return bad("Invalid username or password", 401);
 	}
 	if (!user.password_hash.startsWith("pbkdf2$100000$")) {
@@ -151,7 +194,22 @@ app.post("/api/auth/login", async (c) => {
 		}
 	}
 	const token = await createSession(c.env, user.id, c.req.raw);
-	return withCookies(json({ user: meUser(user) }), sessionCookie(token, c.req.raw));
+	c.executionCtx.waitUntil(bumpMetric(c.env, "login"));
+	track(c.env, "login");
+	let recoveryKey: string | undefined;
+	if (!user.recovery_hash) {
+		try {
+			recoveryKey = generateRecoveryKey();
+			await c.env.DB.prepare("UPDATE users SET recovery_hash = ? WHERE id = ?")
+				.bind(await hashRecoveryKey(recoveryKey), user.id)
+				.run();
+			user.recovery_hash = "1";
+		} catch (err) {
+			console.error("recovery key issue failed", err);
+			recoveryKey = undefined;
+		}
+	}
+	return withCookies(json({ user: meUser(user, c.env), recoveryKey }), sessionCookie(token, c.req.raw));
 });
 
 app.post("/api/auth/logout", async (c) => {
@@ -162,6 +220,48 @@ app.post("/api/auth/logout", async (c) => {
 	return withCookies(json({ ok: true }), ...clearSessionCookies());
 });
 
+app.post("/api/auth/recover", async (c) => {
+	if (await rateLimited(c.req.raw, "recover", 8, 3600, "check")) return bad("Too many attempts", 429);
+	let body: { username?: string; seed?: string; password?: string };
+	try {
+		body = await c.req.json();
+	} catch {
+		return bad("Invalid request");
+	}
+	const seed = (body.seed || "").trim();
+	const password = body.password || "";
+	let username = normUsername(body.username || "");
+	if (!username && seed) {
+		const founderHash = c.env.FOUNDER_RECOVERY_HASH?.trim() || "";
+		if (founderHash && (await recoveryKeyMatches(seed, founderHash))) username = FOUNDER_USERNAME;
+	}
+	if (!seed || !username) return bad("Enter your username and recovery key");
+	if (password.length < MIN_PASSWORD) return bad(`Password must be at least ${MIN_PASSWORD} characters`);
+	if (password.length > 200) return bad("Password is too long");
+	const user = await c.env.DB.prepare("SELECT * FROM users WHERE username = ? COLLATE NOCASE")
+		.bind(username)
+		.first<AuthedUser & { password_hash: string; recovery_hash?: string | null }>();
+	let ok = false;
+	if (user?.recovery_hash) {
+		ok = await recoveryKeyMatches(seed, user.recovery_hash);
+	}
+	if (!ok && user && isFounderUsername(user.username)) {
+		const founderHash = c.env.FOUNDER_RECOVERY_HASH?.trim() || "";
+		if (founderHash) ok = await recoveryKeyMatches(seed, founderHash);
+	}
+	if (!user || !ok) {
+		await rateLimited(c.req.raw, "recover", 8, 3600, "hit");
+		return bad("Could not recover that account", 403);
+	}
+	await c.env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+		.bind(await hashPassword(password), user.id)
+		.run();
+	await c.env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id).run();
+	const token = await createSession(c.env, user.id, c.req.raw);
+	const fresh = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(user.id).first<AuthedUser>();
+	return withCookies(json({ user: meUser(fresh!, c.env) }), sessionCookie(token, c.req.raw));
+});
+
 app.use("/api/*", async (c, next) => {
 	if (c.req.path.startsWith("/api/auth/")) return next();
 	if (c.req.path === "/api/legal-notice") return next();
@@ -169,6 +269,7 @@ app.use("/api/*", async (c, next) => {
 	if (c.req.path === "/api/health") return next();
 	if (c.req.path === "/api/download/android") return next();
 	if (c.req.path === "/api/app") return next();
+	if (c.req.path.startsWith("/api/internal/")) return next();
 	if (c.req.method === "OPTIONS") return next();
 	const auth = await requireUser(c.req.raw, c.env);
 	if (auth instanceof Response) return auth;
@@ -176,12 +277,38 @@ app.use("/api/*", async (c, next) => {
 	return next();
 });
 
-app.get("/api/me", (c) => json({ user: meUser(c.get("user")) }));
+app.get("/api/me", (c) => json({ user: meUser(c.get("user"), c.env) }));
+
+app.post("/api/metrics", async (c) => {
+	if (await rateLimited(c.req.raw, "metrics", 120, 60)) return bad("Too many attempts", 429);
+	let body: { event?: string };
+	try {
+		body = await c.req.json();
+	} catch {
+		return bad("Invalid request");
+	}
+	const event = (body.event || "").trim();
+	if (!event.startsWith("view_")) return bad("Unknown event");
+	track(c.env, event);
+	c.executionCtx.waitUntil(bumpMetric(c.env, event));
+	return json({ ok: true });
+});
+
+app.get("/api/admin/metrics", async (c) => {
+	if (!isFounderUsername(c.get("user").username)) return bad("Forbidden", 403);
+	const rows = await c.env.DB.prepare(
+		"SELECT day, event, n FROM metric_daily WHERE day >= date('now', '-14 days') ORDER BY day DESC, n DESC",
+	).all();
+	return json({ days: rows.results });
+});
 
 app.patch("/api/me", async (c) => {
 	const me = c.get("user");
 	const body = await c.req.json<Record<string, unknown>>();
-	const display = typeof body.displayName === "string" ? body.displayName.trim().slice(0, 32) : me.display_name;
+	const displayRaw = typeof body.displayName === "string" ? body.displayName.trim().slice(0, 32) : me.display_name;
+	const stolen = founderBlocked(displayRaw, me.username, me.username);
+	if (stolen) return bad(stolen, 403);
+	const display = isFounderUsername(me.username) ? FOUNDER_DISPLAY : displayRaw;
 	const bio = typeof body.bio === "string" ? body.bio.slice(0, 140) : me.bio;
 	const storyPrivacy =
 		typeof body.storyPrivacy === "string" && STORY_PRIVACY.has(body.storyPrivacy) ? body.storyPrivacy : me.story_privacy;
@@ -209,7 +336,30 @@ app.patch("/api/me", async (c) => {
 		.bind(display, bio, storyPrivacy, whoCanContact, mapMode, mapSelected, skullmoji, birthday, phone, email, me.id)
 		.run();
 	const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(me.id).first<AuthedUser>();
-	return json({ user: meUser(user!) });
+	return json({ user: meUser(user!, c.env) });
+});
+
+app.post("/api/me/recovery-key", async (c) => {
+	const me = c.get("user");
+	let body: { password?: string } = {};
+	try {
+		body = await c.req.json();
+	} catch {
+		/* first-time issue needs no body */
+	}
+	const row = await c.env.DB.prepare("SELECT password_hash, recovery_hash FROM users WHERE id = ?")
+		.bind(me.id)
+		.first<{ password_hash: string; recovery_hash: string | null }>();
+	if (!row) return bad("Not found", 404);
+	if (row.recovery_hash) {
+		const password = body.password || "";
+		if (!password || !(await verifyPassword(password, row.password_hash))) return bad("Enter your current password", 403);
+	}
+	const recoveryKey = generateRecoveryKey();
+	await c.env.DB.prepare("UPDATE users SET recovery_hash = ? WHERE id = ?")
+		.bind(await hashRecoveryKey(recoveryKey), me.id)
+		.run();
+	return json({ recoveryKey });
 });
 
 app.get("/api/users/search", async (c) => {
@@ -218,7 +368,7 @@ app.get("/api/users/search", async (c) => {
 	const me = c.get("user");
 	const like = likeContains(q);
 	const rows = await c.env.DB.prepare(
-		`SELECT id, username, display_name, skullmoji, snap_score FROM users
+		`SELECT id, username, display_name, skullmoji, snap_score, kindling FROM users
      WHERE id != ? AND (username LIKE ? ESCAPE '!' OR display_name LIKE ? ESCAPE '!') LIMIT 30`,
 	)
 		.bind(me.id, like, like)
@@ -228,7 +378,7 @@ app.get("/api/users/search", async (c) => {
 
 app.get("/api/users/:id", async (c) => {
 	const row = await c.env.DB.prepare(
-		"SELECT id, username, display_name, bio, skullmoji, snap_score, created_at, last_active FROM users WHERE id = ?",
+		"SELECT id, username, display_name, bio, skullmoji, snap_score, created_at, last_active, kindling FROM users WHERE id = ?",
 	)
 		.bind(c.req.param("id"))
 		.first();
@@ -239,7 +389,7 @@ app.get("/api/users/:id", async (c) => {
 app.get("/api/friends", async (c) => {
 	const me = c.get("user");
 	const rows = await c.env.DB.prepare(
-		`SELECT u.id, u.username, u.display_name, u.skullmoji, u.snap_score, u.last_active, f.status,
+		`SELECT u.id, u.username, u.display_name, u.skullmoji, u.snap_score, u.last_active, u.kindling, f.status,
             s.count AS streak, s.expires_at AS streak_expires, s.record AS streak_record
      FROM friendships f
      JOIN users u ON u.id = f.friend_id
@@ -253,7 +403,7 @@ app.get("/api/friends", async (c) => {
 	return json({ friends: rows.results });
 });
 
-const PERSON_COLS = "u.id, u.username, u.display_name, u.skullmoji";
+const PERSON_COLS = "u.id, u.username, u.display_name, u.skullmoji, u.kindling";
 
 async function clearDismissal(env: Env, me: string, other: string): Promise<void> {
 	await env.DB.prepare("DELETE FROM friend_dismissals WHERE user_id = ? AND other_id = ?").bind(me, other).run();
@@ -487,7 +637,10 @@ app.get("/api/friends/:id/profile", async (c) => {
 	const other = c.req.param("id");
 	if (!(await areFriends(c.env, me.id, other))) return bad("Not friends", 403);
 	const user = await c.env.DB.prepare(
-		"SELECT id, username, display_name, bio, skullmoji, snap_score, birthday, created_at FROM users WHERE id = ?",
+		`SELECT id, username, display_name, bio, skullmoji, snap_score, birthday, created_at, kindling,
+            (SELECT media_key FROM stories WHERE user_id = users.id AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1) AS story_key,
+            (SELECT kind FROM stories WHERE user_id = users.id AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1) AS story_kind
+     FROM users WHERE id = ?`,
 	)
 		.bind(other)
 		.first();
@@ -568,6 +721,7 @@ app.post("/api/media", async (c) => {
 	if (!body) return bad("Empty file");
 	const key = `u/${me.id}/${crypto.randomUUID()}.${extForType(ct)}`;
 	await c.env.MEDIA.put(key, body, { httpMetadata: { contentType: ct } });
+	c.executionCtx.waitUntil(bumpMetric(c.env, "media"));
 	return json({ key, url: `/api/media/${encodeURIComponent(key)}` });
 });
 
@@ -710,6 +864,7 @@ app.post("/api/snaps", async (c) => {
 			.bind(crypto.randomUUID(), me.id, body.mediaKey, body.kind === "video" ? "video" : "photo", body.caption || "", created, monthKey(created))
 			.run();
 	}
+	c.executionCtx.waitUntil(bumpMetric(c.env, "snap"));
 	return json({ id });
 });
 
@@ -718,7 +873,7 @@ app.get("/api/inbox", async (c) => {
 	const rows = await c.env.DB.prepare(
 		`SELECT r.snap_id, r.viewed_at, r.replayed, r.screenshot_at,
             s.sender_id, s.kind, s.duration_sec, s.caption, s.created_at, s.conversation_id,
-            u.username, u.display_name, u.skullmoji
+            u.username, u.display_name, u.skullmoji, u.kindling
      FROM snap_receipts r
      JOIN snaps s ON s.id = r.snap_id
      JOIN users u ON u.id = s.sender_id
@@ -734,7 +889,7 @@ app.get("/api/snaps/:id", async (c) => {
 	const me = c.get("user");
 	const id = c.req.param("id");
 	const snap = await c.env.DB.prepare(
-		`SELECT s.*, u.username, u.display_name, u.skullmoji
+		`SELECT s.*, u.username, u.display_name, u.skullmoji, u.kindling
      FROM snaps s JOIN users u ON u.id = s.sender_id WHERE s.id = ?`,
 	)
 		.bind(id)
@@ -848,6 +1003,7 @@ app.post("/api/stories", async (c) => {
 			.bind(crypto.randomUUID(), me.id, body.mediaKey, body.kind === "video" ? "video" : "photo", body.caption || "", created, monthKey(created))
 			.run();
 	}
+	c.executionCtx.waitUntil(bumpMetric(c.env, "story"));
 	return json({ ok: true });
 });
 
@@ -859,7 +1015,7 @@ app.get("/api/stories", async (c) => {
 		.bind(me.id)
 		.all();
 	const friends = await c.env.DB.prepare(
-		`SELECT s.*, u.username, u.display_name, u.skullmoji
+		`SELECT s.*, u.username, u.display_name, u.skullmoji, u.kindling
      FROM stories s
      JOIN users u ON u.id = s.user_id
      JOIN friendships f ON f.friend_id = s.user_id AND f.user_id = ? AND f.status = 'accepted'
@@ -872,7 +1028,7 @@ app.get("/api/stories", async (c) => {
 		.bind(me.id, me.id, me.id)
 		.all();
 	const discover = await c.env.DB.prepare(
-		`SELECT s.*, u.username, u.display_name, u.skullmoji
+		`SELECT s.*, u.username, u.display_name, u.skullmoji, u.kindling
      FROM stories s JOIN users u ON u.id = s.user_id
      WHERE s.expires_at > datetime('now')
        AND u.story_privacy = 'everyone'
@@ -910,7 +1066,7 @@ app.get("/api/stories/:id/viewers", async (c) => {
 		.first<{ user_id: string }>();
 	if (!story || story.user_id !== me.id) return bad("Forbidden", 403);
 	const rows = await c.env.DB.prepare(
-		`SELECT u.id, u.username, u.display_name, u.skullmoji, v.viewed_at
+		`SELECT u.id, u.username, u.display_name, u.skullmoji, u.kindling, v.viewed_at
      FROM story_views v JOIN users u ON u.id = v.viewer_id WHERE v.story_id = ?`,
 	)
 		.bind(c.req.param("id"))
@@ -927,10 +1083,17 @@ app.get("/api/chats", async (c) => {
 	)
 		.bind(me.id)
 		.all<{ id: string; is_group: number; name: string | null; created_by: string | null; created_at: string }>();
+	const storyRows = await c.env.DB.prepare(
+		"SELECT user_id, media_key, kind FROM stories WHERE expires_at > datetime('now') ORDER BY created_at DESC",
+	).all<{ user_id: string; media_key: string; kind: string }>();
+	const latestStory = new Map<string, { media_key: string; kind: string }>();
+	for (const s of storyRows.results) {
+		if (!latestStory.has(s.user_id)) latestStory.set(s.user_id, s);
+	}
 	const chats = [];
 	for (const conv of convos.results) {
 		const members = await c.env.DB.prepare(
-			`SELECT u.id, u.username, u.display_name, u.skullmoji, u.last_active
+			`SELECT u.id, u.username, u.display_name, u.skullmoji, u.last_active, u.kindling
        FROM conversation_members m JOIN users u ON u.id = m.user_id
        WHERE m.conversation_id = ? AND u.id != ?`,
 		)
@@ -960,7 +1123,10 @@ app.get("/api/chats", async (c) => {
 		}
 		chats.push({
 			...conv,
-			members: members.results,
+			members: members.results.map((m) => {
+				const story = latestStory.get(m.id as string);
+				return { ...m, story_key: story?.media_key || null, story_kind: story?.kind || null };
+			}),
 			last,
 			unopenedSnaps: pending?.n || 0,
 			streak,
@@ -1015,7 +1181,7 @@ app.get("/api/chats/:id/messages", async (c) => {
 		.first();
 	if (!member) return bad("Forbidden", 403);
 	const rows = await c.env.DB.prepare(
-		`SELECT m.*, u.username, u.display_name, u.skullmoji,
+		`SELECT m.*, u.username, u.display_name, u.skullmoji, u.kindling,
             CASE WHEN ms.user_id IS NULL THEN 0 ELSE 1 END AS saved
      FROM messages m
      JOIN users u ON u.id = m.sender_id
@@ -1074,9 +1240,12 @@ app.post("/api/chats/:id/messages", async (c) => {
 		id: msgId,
 		conversationId: id,
 		sender_id: me.id,
+		username: me.username,
+		kindling: Number(me.kindling) === 1,
 		kind: body.kind || "text",
 		body: body.body || "",
 		media_key: body.mediaKey || null,
+		extra: body.extra || null,
 		created_at: nowIso(),
 		saved: 0,
 		display_name: me.display_name,
@@ -1094,6 +1263,64 @@ app.post("/api/chats/:id/messages", async (c) => {
 		});
 	}
 	return json({ id: msgId });
+});
+
+app.patch("/api/messages/:id", async (c) => {
+	const me = c.get("user");
+	const id = c.req.param("id");
+	const row = await c.env.DB.prepare("SELECT * FROM messages WHERE id = ?").bind(id).first<{
+		id: string;
+		conversation_id: string;
+		sender_id: string;
+		kind: string;
+		body: string;
+		extra: string | null;
+	}>();
+	if (!row) return bad("Not found", 404);
+	if (row.sender_id !== me.id) return bad("Forbidden", 403);
+	const member = await c.env.DB.prepare(
+		"SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?",
+	)
+		.bind(row.conversation_id, me.id)
+		.first();
+	if (!member) return bad("Forbidden", 403);
+	if (row.kind !== "text") return bad("Only chats can be edited");
+	const body = await c.req.json<{ body?: string }>();
+	const next = (body.body || "").trim().slice(0, 4000);
+	if (next.length < 1) return bad("Empty");
+	const extra = { ...parseJson<Record<string, unknown>>(row.extra, {}), editedAt: nowIso() };
+	await c.env.DB.prepare("UPDATE messages SET body = ?, extra = ? WHERE id = ?")
+		.bind(next, JSON.stringify(extra), id)
+		.run();
+	const stub = c.env.CHAT_ROOM.get(c.env.CHAT_ROOM.idFromName(row.conversation_id));
+	await stub.fetch("https://room/broadcast", {
+		method: "POST",
+		body: JSON.stringify({ type: "message_edit", id, body: next, extra }),
+	});
+	return json({ ok: true, extra });
+});
+
+app.delete("/api/messages/:id", async (c) => {
+	const me = c.get("user");
+	const id = c.req.param("id");
+	const row = await c.env.DB.prepare("SELECT * FROM messages WHERE id = ?").bind(id).first<{
+		id: string;
+		conversation_id: string;
+		sender_id: string;
+		extra: string | null;
+	}>();
+	if (!row) return bad("Not found", 404);
+	if (row.sender_id !== me.id) return bad("Forbidden", 403);
+	const extra = { ...parseJson<Record<string, unknown>>(row.extra, {}), deleted: true };
+	await c.env.DB.prepare("UPDATE messages SET body = '', media_key = NULL, extra = ? WHERE id = ?")
+		.bind(JSON.stringify(extra), id)
+		.run();
+	const stub = c.env.CHAT_ROOM.get(c.env.CHAT_ROOM.idFromName(row.conversation_id));
+	await stub.fetch("https://room/broadcast", {
+		method: "POST",
+		body: JSON.stringify({ type: "message_delete", id }),
+	});
+	return json({ ok: true });
 });
 
 app.post("/api/messages/:id/save", async (c) => {
@@ -1163,7 +1390,7 @@ app.delete("/api/memories/:id", async (c) => {
 app.get("/api/spotlight", async (c) => {
 	const me = c.get("user");
 	const rows = await c.env.DB.prepare(
-		`SELECT s.*, u.username, u.display_name, u.skullmoji,
+		`SELECT s.*, u.username, u.display_name, u.skullmoji, u.kindling,
             CASE WHEN h.user_id IS NULL THEN 0 ELSE 1 END AS hearted
      FROM spotlight s
      JOIN users u ON u.id = s.user_id
@@ -1188,6 +1415,7 @@ app.post("/api/spotlight", async (c) => {
 		.bind(id, me.id, body.mediaKey, body.caption || "", nowIso())
 		.run();
 	await bumpScore(c.env, me.id, 2);
+	c.executionCtx.waitUntil(bumpMetric(c.env, "spotlight"));
 	return json({ id });
 });
 
@@ -1229,7 +1457,7 @@ app.post("/api/map", async (c) => {
 app.get("/api/map", async (c) => {
 	const me = c.get("user");
 	const friends = await c.env.DB.prepare(
-		`SELECT u.id, u.username, u.display_name, u.skullmoji, u.map_mode, u.map_selected, l.lat, l.lng, l.updated_at, l.activity
+		`SELECT u.id, u.username, u.display_name, u.skullmoji, u.kindling, u.map_mode, u.map_selected, l.lat, l.lng, l.updated_at, l.activity
      FROM friendships f
      JOIN users u ON u.id = f.friend_id
      JOIN locations l ON l.user_id = u.id
@@ -1319,6 +1547,76 @@ app.post("/api/calls/signal", async (c) => {
 	return json({ ok: true });
 });
 
+app.get("/api/tickets", async (c) => {
+	if (!isBetaOpen(c.env)) return bad("Beta tickets are closed", 404);
+	const me = c.get("user");
+	const founder = isFounderUsername(me.username);
+	const rows = founder
+		? await c.env.DB.prepare(
+				`SELECT t.*, u.username FROM tickets t JOIN users u ON u.id = t.user_id ORDER BY t.created_at DESC LIMIT 200`,
+			).all<TicketRow>()
+		: await c.env.DB.prepare(
+				`SELECT t.*, u.username FROM tickets t JOIN users u ON u.id = t.user_id WHERE t.user_id = ? ORDER BY t.created_at DESC LIMIT 100`,
+			)
+				.bind(me.id)
+				.all<TicketRow>();
+	return json({ tickets: rows.results.map(publicTicket) });
+});
+
+app.post("/api/tickets", async (c) => {
+	if (!isBetaOpen(c.env)) return bad("Beta tickets are closed", 404);
+	if (await rateLimited(c.req.raw, "ticket", 12, 3600)) return bad("Too many tickets right now", 429);
+	const me = c.get("user");
+	let body: { kind?: string; title?: string; body?: string };
+	try {
+		body = await c.req.json();
+	} catch {
+		return bad("Invalid request");
+	}
+	const kind: TicketKind = body.kind === "feature" ? "feature" : body.kind === "bug" ? "bug" : ("" as TicketKind);
+	if (kind !== "bug" && kind !== "feature") return bad("Pick bug or feature");
+	const title = (body.title || "").trim().slice(0, 80);
+	const text = (body.body || "").trim().slice(0, 4000);
+	if (title.length < 4) return bad("Give it a short title");
+	if (text.length < 12) return bad("Tell us what happened or what you want");
+	const today = await c.env.DB.prepare(
+		"SELECT COUNT(*) AS n FROM tickets WHERE user_id = ? AND created_at > datetime('now', '-1 day')",
+	)
+		.bind(me.id)
+		.first<{ n: number }>();
+	if (Number(today?.n || 0) >= 8) return bad("That's enough tickets for today", 429);
+	const id = crypto.randomUUID();
+	const now = nowIso();
+	await c.env.DB.prepare(
+		`INSERT INTO tickets (id, user_id, kind, title, body, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`,
+	)
+		.bind(id, me.id, kind, title, text, now, now)
+		.run();
+	const row = await c.env.DB.prepare("SELECT t.*, u.username FROM tickets t JOIN users u ON u.id = t.user_id WHERE t.id = ?")
+		.bind(id)
+		.first<TicketRow>();
+	if (row) c.executionCtx.waitUntil(dispatchTicketWebhook(c.env, row));
+	return json({ ticket: publicTicket(row!) });
+});
+
+app.post("/api/internal/tickets/result", async (c) => {
+	if (await rateLimited(c.req.raw, "ticket-callback", 40, 3600)) return bad("Too many attempts", 429);
+	let body: { ticketId?: string; status?: string; note?: string; prUrl?: string; rollout?: string; androidVersionCode?: number };
+	try {
+		body = await c.req.json();
+	} catch {
+		return bad("Invalid request");
+	}
+	const ticketId = (body.ticketId || "").trim();
+	if (!(await verifyTicketCallbackToken(c.env, ticketId, bearerToken(c.req.raw)))) {
+		return bad("Forbidden", 403);
+	}
+	const result = await applyTicketResult(c.env, ticketId, body);
+	if ("error" in result) return bad(result.error, result.status);
+	return json({ ok: true });
+});
+
 app.post("/api/legal-notice", async (c) => {
 	if (await rateLimited(c.req.raw, "legal", 5, 3600)) return bad("Too many attempts", 429);
 	const body = await c.req.json<{ contact?: string; targetUrl?: string; detail?: string }>();
@@ -1340,7 +1638,9 @@ app.post("/api/admin/legal/takedown", async (c) => {
 	if (await rateLimited(c.req.raw, "admin", 5, 900)) return bad("Too many attempts", 429);
 	const expected = c.env.ADMIN_PASSWORD;
 	const body = await c.req.json<{ password?: string; mediaKey?: string; noticeId?: string }>();
-	if (!expected || !(await secretEqual(body.password || "", expected))) return bad("Forbidden", 403);
+	const session = await requireUser(c.req.raw, c.env);
+	const founder = !(session instanceof Response) && isFounderUsername(session.user.username);
+	if (!founder && (!expected || !(await secretEqual(body.password || "", expected)))) return bad("Forbidden", 403);
 	if (body.mediaKey) {
 		await c.env.MEDIA.delete(body.mediaKey).catch(() => undefined);
 		await c.env.DB.prepare("DELETE FROM snaps WHERE media_key = ?").bind(body.mediaKey).run();
@@ -1357,15 +1657,10 @@ app.post("/api/admin/legal/takedown", async (c) => {
 
 app.get("/api/health", (_c) => json({ ok: true }));
 
-app.get("/api/app", () =>
-	json({
-		android: {
-			versionCode: 2,
-			versionName: "1.1",
-			url: "https://chat.pyrearms.dev/api/download/android",
-		},
-	}),
-);
+app.get("/api/app", async (c) => {
+	const [android, notice] = await Promise.all([androidRelease(c.env), latestAppNotice(c.env)]);
+	return json({ android, notice });
+});
 
 app.get("/api/download/android", async (c) => {
 	const obj = await c.env.MEDIA.get("app/pyrechat.apk");

@@ -6,6 +6,15 @@ export { ChatRoom, UserHub };
 
 export default {
 	async fetch(request, env, ctx) {
+		const url = new URL(request.url);
+		if (url.pathname.startsWith("/assets/")) {
+			const res = await env.ASSETS.fetch(request);
+			const type = (res.headers.get("Content-Type") || "").toLowerCase();
+			if (res.status === 404 || type.includes("text/html")) {
+				return new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+			}
+			return res;
+		}
 		return app.fetch(request, env, ctx);
 	},
 	async scheduled(_controller, env, ctx) {

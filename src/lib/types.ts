@@ -24,6 +24,10 @@ export type User = {
 	email: string | null;
 	createdAt: string;
 	lastActive: string | null;
+	founder?: boolean;
+	kindling?: boolean;
+	betaTickets?: boolean;
+	hasRecovery?: boolean;
 };
 
 export type Friend = {
@@ -37,13 +41,14 @@ export type Friend = {
 	streak: number | null;
 	streak_expires: string | null;
 	streak_record: number | null;
+	kindling?: number | boolean;
 };
 
 export type ChatRow = {
 	id: string;
 	is_group: number;
 	name: string | null;
-	members: { id: string; username: string; display_name: string; skullmoji: string; last_active: string | null }[];
+	members: { id: string; username: string; display_name: string; skullmoji: string; last_active: string | null; kindling?: number | boolean; story_key?: string | null; story_kind?: string | null }[];
 	last: { kind: string; body: string; created_at: string; sender_id: string } | null;
 	unopenedSnaps: number;
 	streak: number;

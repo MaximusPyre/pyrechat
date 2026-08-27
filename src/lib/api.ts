@@ -62,8 +62,8 @@ export function mediaUrl(key: string): string {
 	return `${apiOrigin()}/api/media/${encodeURIComponent(key)}`;
 }
 
-export async function login(username: string, password: string): Promise<{ user: User }> {
-	return api<{ user: User }>("/api/auth/login", {
+export async function login(username: string, password: string): Promise<{ user: User; recoveryKey?: string }> {
+	return api<{ user: User; recoveryKey?: string }>("/api/auth/login", {
 		method: "POST",
 		body: JSON.stringify({ username, password }),
 	});
@@ -74,11 +74,22 @@ export async function signup(
 	password: string,
 	displayName: string,
 	birthday?: string,
-): Promise<{ user: User }> {
-	return api<{ user: User }>("/api/auth/signup", {
+): Promise<{ user: User; recoveryKey?: string }> {
+	return api<{ user: User; recoveryKey?: string }>("/api/auth/signup", {
 		method: "POST",
 		body: JSON.stringify({ username, password, displayName, birthday }),
 	});
+}
+
+export async function recover(username: string, seed: string, password: string): Promise<{ user: User }> {
+	return api<{ user: User }>("/api/auth/recover", {
+		method: "POST",
+		body: JSON.stringify({ username, seed, password }),
+	});
+}
+
+export function track(event: string): void {
+	void api("/api/metrics", { method: "POST", body: JSON.stringify({ event }) }).catch(() => undefined);
 }
 
 export async function logout(): Promise<void> {

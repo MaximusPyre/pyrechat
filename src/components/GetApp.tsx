@@ -232,3 +232,101 @@ export function NativeUpdateBanner() {
 		</div>
 	);
 }
+
+export function AppNoticeBanner() {
+	const [notice, setNotice] = useState<{ id: string; kind: string; body: string; url: string | null } | null>(null);
+	useEffect(() => {
+		let alive = true;
+		async function load() {
+			try {
+				const r = await api<{ notice: { id: string; kind: string; body: string; url: string | null } | null }>("/api/app");
+				if (!alive || !r.notice) return;
+				try {
+					if (localStorage.getItem(`pyrechat.notice.${r.notice.id}`) === "1") return;
+				} catch {
+					/* ignore */
+				}
+				setNotice(r.notice);
+			} catch {
+				/* ignore */
+			}
+		}
+		void load();
+		const t = window.setInterval(() => void load(), 60000);
+		return () => {
+			alive = false;
+			window.clearInterval(t);
+		};
+	}, []);
+	if (!notice) return null;
+	return (
+		<div className="get-app">
+			<div className="get-app-copy">
+				<strong>{notice.kind === "apk" ? "New Android build" : "PyreChat updated"}</strong>
+				<span>{notice.body}</span>
+			</div>
+			{notice.url && (
+				<a className="get-app-btn" href={notice.url}>
+					Download
+				</a>
+			)}
+			<button
+				className="get-app-x"
+				aria-label="Dismiss"
+				onClick={() => {
+					try {
+						localStorage.setItem(`pyrechat.notice.${notice.id}`, "1");
+					} catch {
+						/* ignore */
+					}
+					setNotice(null);
+				}}
+			>
+				×
+			</button>
+		</div>
+	);
+}
+
+type AccountNotice = { id: string; kind: string; body: string; payload: string | null; read: number };
+
+export function AccountNotices({ refreshKey = 0 }: { refreshKey?: number }) {
+	const [items, setItems] = useState<AccountNotice[]>([]);
+	useEffect(() => {
+		void api<{ notifications: AccountNotice[] }>("/api/notifications")
+			.then((r) => {
+				setItems((r.notifications || []).filter((n) => n.kind === "ticket" || n.kind === "app_update").slice(0, 4));
+			})
+			.catch(() => {
+				/* ignore */
+			});
+	}, [refreshKey]);
+	if (items.length === 0) return null;
+	return (
+		<div className="account-notices">
+			{items.map((n) => {
+				let url = "";
+				try {
+					const p = n.payload ? (JSON.parse(n.payload) as { url?: string }) : {};
+					if (p.url) url = p.url;
+				} catch {
+					/* ignore */
+				}
+				if (n.kind === "app_update" && !url) url = APK_URL;
+				return (
+					<div key={n.id} className={`account-notice${n.read ? "" : " unread"}`}>
+						<div className="get-app-copy">
+							<strong>{n.kind === "ticket" ? "Ticket update" : "App update"}</strong>
+							<span>{n.body}</span>
+						</div>
+						{url && n.kind === "app_update" && (
+							<a className="get-app-link" href={url}>
+								APK
+							</a>
+						)}
+					</div>
+				);
+			})}
+		</div>
+	);
+}

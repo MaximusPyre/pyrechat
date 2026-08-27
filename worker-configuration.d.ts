@@ -6,8 +6,18 @@ interface __BaseEnv_Env {
 	DB: D1Database;
 	PUBLIC_APP_NAME: "PyreChat";
 	PUBLIC_APP_URL: "https://chat.pyrearms.dev";
+	BETA_OPEN: "1";
+	EARLY_COHORT: "1";
+	CURSOR_REPO: string;
 	SESSION_SECRET: string;
 	ADMIN_PASSWORD: string;
+	FOUNDER_RECOVERY_HASH: string;
+	CURSOR_API_KEY?: string;
+	TICKET_WEBHOOK_URL?: string;
+	TICKET_WEBHOOK_TOKEN?: string;
+	TICKET_CALLBACK_SECRET?: string;
+	ASSETS: Fetcher;
+	ANALYTICS: AnalyticsEngineDataset;
 	CHAT_ROOM: DurableObjectNamespace<import("./worker/index").ChatRoom>;
 	USER_HUB: DurableObjectNamespace<import("./worker/index").UserHub>;
 }

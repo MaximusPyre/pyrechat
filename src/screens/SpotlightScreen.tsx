@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, mediaUrl } from "../lib/api";
+import { EMBER } from "../lib/brand";
 import { Icon } from "../components/Icon";
 import { SkullmojiAvatar } from "../components/Skull";
 
@@ -75,7 +76,7 @@ export function SpotlightScreen({ startAt = 0 }: { startAt?: number }) {
 						);
 					}}
 				>
-					<Icon name="heart" color={cur.hearted ? "#ff6a1a" : "#fff"} />
+					<Icon name="heart" color={cur.hearted ? EMBER : "#fff"} />
 				</button>
 				<span className="heart">{cur.hearts}</span>
 				<button className="icon-btn"><Icon name="share" /></button>

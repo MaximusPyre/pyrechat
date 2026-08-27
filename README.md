@@ -5,6 +5,8 @@ Snapchat-class camera messenger: **orange** instead of yellow, a **white skull o
 **Humans only.** No ranking algorithm, no For You page, no AI. Feeds are chronological. The only takedown is **illegal content** (court orders, CSAM, and the like) — not speech.
 
 Live site: **https://chat.pyrearms.dev**  
+Android APK: **https://chat.pyrearms.dev/api/download/android**  
+The APK WebView loads the live site, so UI changes roll out without a new install. A new APK is only needed for native/plugin changes.  
 Source: **https://github.com/MaximusPyre/pyrechat**
 
 

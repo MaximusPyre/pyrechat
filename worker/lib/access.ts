@@ -23,13 +23,17 @@ export const ALLOWED_MEDIA_TYPES = new Set([
 	"audio/webm",
 	"audio/mp4",
 	"audio/mpeg",
+	"application/pdf",
+	"application/zip",
+	"application/x-zip-compressed",
+	"text/plain",
 ]);
 
 export const STORY_PRIVACY = new Set(["friends", "everyone"]);
 export const WHO_CAN_CONTACT = new Set(["everyone", "friends"]);
 export const MAP_MODES = new Set(["friends", "selected", "skull"]);
 
-const MEDIA_KEY_RE = /^u\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|jpeg|png|webp|gif|webm|mp4|mov|m4a)$/i;
+const MEDIA_KEY_RE = /^u\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|jpeg|png|webp|gif|webm|mp4|mov|m4a|mp3|pdf|zip|txt)$/i;
 
 export function corsOrigin(origin: string): string | undefined {
 	return origin && ALLOWED_ORIGINS.has(origin) ? origin : undefined;
@@ -50,6 +54,10 @@ export function extForType(ct: string): string {
 	if (ct === "image/png") return "png";
 	if (ct === "image/webp") return "webp";
 	if (ct === "image/gif") return "gif";
+	if (ct === "application/pdf") return "pdf";
+	if (ct === "text/plain") return "txt";
+	if (ct === "application/zip" || ct === "application/x-zip-compressed") return "zip";
+	if (ct === "audio/mpeg") return "mp3";
 	if (ct.startsWith("video/") || ct.startsWith("audio/")) return ct.includes("mp4") ? "mp4" : "webm";
 	return "jpg";
 }

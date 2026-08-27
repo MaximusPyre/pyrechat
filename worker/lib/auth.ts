@@ -1,6 +1,8 @@
 import { parseJson } from "./util.js";
+import { isFounderUsername } from "./founder.js";
+import { isBetaOpen } from "./env.js";
 
-function timingSafeEqual(a: string, b: string): boolean {
+export function timingSafeEqual(a: string, b: string): boolean {
 	if (a.length !== b.length) return false;
 	let mismatch = 0;
 	for (let i = 0; i < a.length; i++) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
@@ -16,11 +18,50 @@ async function sha256Hex(text: string): Promise<string> {
 	return toHex(buf);
 }
 
+export function normalizeRecoveryKey(raw: string): string {
+	return (raw || "").replace(/[^a-fA-F0-9]/g, "").toLowerCase();
+}
+
+export function formatRecoveryKey(hex: string): string {
+	return (hex.match(/.{1,8}/g) || [hex]).join("-");
+}
+
+export function generateRecoveryKey(): string {
+	const bytes = new Uint8Array(32);
+	crypto.getRandomValues(bytes);
+	return formatRecoveryKey(toHex(bytes.buffer));
+}
+
+export async function hashRecoveryKey(key: string): Promise<string> {
+	const norm = normalizeRecoveryKey(key);
+	if (norm.length < 32) throw new Error("recovery key too short");
+	return sha256Hex(norm);
+}
+
+export async function recoveryKeyMatches(key: string, stored: string): Promise<boolean> {
+	const trimmed = (key || "").trim().replace(/\s+/g, "");
+	const norm = normalizeRecoveryKey(key);
+	if (!stored || trimmed.length < 16) return false;
+	const candidates = [...new Set([trimmed, trimmed.toLowerCase(), norm].filter((s) => s.length >= 16))];
+	if (stored.startsWith("pbkdf2$") || stored.includes(":")) {
+		const unique = candidates[0] === candidates[candidates.length - 1] ? [candidates[0]] : [candidates[0], candidates[candidates.length - 1]];
+		for (const c of unique) {
+			if (await verifyPassword(c, stored)) return true;
+		}
+		return false;
+	}
+	const want = stored.toLowerCase();
+	for (const c of candidates) {
+		if (timingSafeEqual(await sha256Hex(c), want)) return true;
+	}
+	return false;
+}
+
 export async function secretEqual(given: string, expected: string): Promise<boolean> {
 	return timingSafeEqual(await sha256Hex(given), await sha256Hex(expected));
 }
 
-async function hmacHex(secret: string, data: string): Promise<string> {
+export async function hmacHex(secret: string, data: string): Promise<string> {
 	const key = await crypto.subtle.importKey(
 		"raw",
 		new TextEncoder().encode(secret),
@@ -74,20 +115,21 @@ export async function verifyPassword(password: string, stored: string): Promise<
 	}
 }
 
-function sessionSecret(env: Env, request: Request): string {
+const SESSION_PLACEHOLDERS = new Set([
+	"dev-only-change-me",
+	"change-me-in-production-use-a-long-random-string",
+]);
+
+function sessionSecret(env: Env): string {
 	const secret = env.SESSION_SECRET?.trim();
-	if (!secret || secret === "dev-only-change-me") {
-		throw new Error("SESSION_SECRET is not configured");
-	}
-	const host = new URL(request.url).hostname;
-	if (host === "chat.pyrearms.dev" && /change-me/i.test(secret)) {
+	if (!secret || SESSION_PLACEHOLDERS.has(secret)) {
 		throw new Error("SESSION_SECRET is not configured");
 	}
 	return secret;
 }
 
-export async function createSession(env: Env, userId: string, request: Request): Promise<string> {
-	const secret = sessionSecret(env, request);
+export async function createSession(env: Env, userId: string, _request: Request): Promise<string> {
+	const secret = sessionSecret(env);
 	const raw = crypto.randomUUID() + crypto.randomUUID();
 	const token = await hmacHex(secret, raw);
 	const expires = new Date(Date.now() + 1000 * SESSION_MAX_AGE).toISOString();
@@ -135,14 +177,16 @@ export type AuthedUser = {
 	map_selected: string;
 	created_at: string;
 	last_active: string | null;
+	kindling?: number;
+	recovery_hash?: string | null;
 };
 
 const DEFAULT_SKULL = {
-	color: "#FF6A1A",
+	color: "#c45e32",
 	eyes: "hollow",
 	jaw: "grin",
 	hat: "none",
-	bg: "#111111",
+	bg: "#1c2124",
 };
 
 export async function requireUser(
@@ -177,6 +221,9 @@ function basePublic(u: AuthedUser) {
 		mapSelected: parseJson<string[]>(u.map_selected, []),
 		createdAt: u.created_at,
 		lastActive: u.last_active,
+		founder: isFounderUsername(u.username),
+		kindling: !isFounderUsername(u.username) && Number(u.kindling) === 1,
+		hasRecovery: Boolean(u.recovery_hash),
 	};
 }
 
@@ -184,11 +231,13 @@ export function publicUser(u: AuthedUser) {
 	return basePublic(u);
 }
 
-export function meUser(u: AuthedUser) {
+export function meUser(u: AuthedUser, env?: Env) {
 	return {
 		...basePublic(u),
 		birthday: u.birthday,
 		phone: u.phone,
 		email: u.email,
+		betaTickets: env ? isBetaOpen(env) : false,
+		hasRecovery: Boolean(u.recovery_hash),
 	};
 }

@@ -7,26 +7,29 @@ const config: CapacitorConfig = {
 	server: {
 		androidScheme: "https",
 		iosScheme: "https",
+		url: "https://chat.pyrearms.dev",
+		allowNavigation: ["chat.pyrearms.dev"],
 	},
 	plugins: {
 		SplashScreen: {
-			backgroundColor: "#FF6A1A",
+			backgroundColor: "#141618",
 			launchAutoHide: true,
 			showSpinner: false,
 		},
 		StatusBar: {
 			style: "DARK",
-			backgroundColor: "#000000",
+			backgroundColor: "#141618",
 		},
 		Keyboard: {
 			resize: "body",
+			style: "DARK",
 		},
 	},
 	android: {
-		backgroundColor: "#000000",
+		backgroundColor: "#141618",
 	},
 	ios: {
-		backgroundColor: "#000000",
+		backgroundColor: "#141618",
 		contentInset: "automatic",
 		preferredContentMode: "mobile",
 		scheme: "PyreChat",

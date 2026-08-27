@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { api, logout, mediaUrl } from "../lib/api";
+import { TEAL } from "../lib/brand";
 import type { Friend, Skullmoji, User } from "../lib/types";
 import { Icon } from "../components/Icon";
 import { SkullLogo, SkullmojiAvatar } from "../components/Skull";
+import { GetAppCard } from "../components/GetApp";
+import { DisplayName } from "../components/DisplayName";
+import { RecoveryKeySheet } from "../components/RecoveryKey";
 
 export function ProfileScreen({
 	me,
@@ -38,15 +42,17 @@ export function ProfileScreen({
 			</div>
 			<div className="settings" style={{ textAlign: "center" }}>
 				<SkullmojiAvatar value={me.skullmoji} size={96} />
-				<h2 style={{ margin: "12px 0 0" }}>{me.displayName}</h2>
+				<h2 style={{ margin: "12px 0 0" }}><DisplayName name={me.displayName} username={me.username} kindling={me.kindling} /></h2>
 				<div className="muted">@{me.username}</div>
+				{me.kindling ? <div className="muted" style={{ marginTop: 6, fontWeight: 700 }}>Kindling — here before private beta.</div> : null}
 				<div className="score" style={{ fontSize: 22, margin: "10px 0" }}>{me.snapScore} Pyre Score</div>
+				<GetAppCard prominent />
 				<div className="card" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
 					<SkullLogo size={72} orange />
 					<div className="muted" style={{ fontWeight: 800 }}>Skullcode</div>
 					<div style={{ display: "grid", gridTemplateColumns: "repeat(8, 10px)", gap: 4 }}>
 						{hashDots(me.id).map((on, i) => (
-							<i key={i} style={{ width: 10, height: 10, borderRadius: 2, background: on ? "#ff6a1a" : "#333" }} />
+							<i key={i} style={{ width: 10, height: 10, borderRadius: 2, background: on ? TEAL : "#323a40" }} />
 						))}
 					</div>
 					<button className="pill" onClick={() => void navigator.clipboard.writeText(code)}>{code.replace("https://", "")}</button>
@@ -68,6 +74,59 @@ function hashDots(id: string): boolean[] {
 		out.push(id.charCodeAt(i % id.length) * (i + 3) % 7 > 2);
 	}
 	return out;
+}
+
+function RecoverySettings({ hasRecovery }: { hasRecovery: boolean }) {
+	const [password, setPassword] = useState("");
+	const [key, setKey] = useState<string | null>(null);
+	const [msg, setMsg] = useState("");
+	const [busy, setBusy] = useState(false);
+
+	async function rotate() {
+		setMsg("");
+		setBusy(true);
+		try {
+			const r = await api<{ recoveryKey: string }>("/api/me/recovery-key", {
+				method: "POST",
+				body: JSON.stringify({ password }),
+			});
+			setPassword("");
+			setKey(r.recoveryKey);
+		} catch (e) {
+			setMsg(e instanceof Error ? e.message : "Could not replace key");
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	if (key) {
+		return <RecoveryKeySheet recoveryKey={key} title="New recovery key" onDone={() => setKey(null)} />;
+	}
+
+	return (
+		<div className="card">
+			<h3>Recovery key</h3>
+			<p className="muted" style={{ margin: "0 0 10px", fontWeight: 600, lineHeight: 1.45 }}>
+				{hasRecovery
+					? "This key resets your password if you get locked out. Making a new one retires the old one."
+					: "Create a recovery key so you can reset your password without us."}
+			</p>
+			{hasRecovery && (
+				<input
+					className="field"
+					type="password"
+					placeholder="Current password"
+					value={password}
+					onChange={(e) => setPassword(e.target.value)}
+					autoComplete="current-password"
+				/>
+			)}
+			<button className="pill" disabled={busy || (hasRecovery && !password)} onClick={() => void rotate()}>
+				{busy ? "…" : hasRecovery ? "Replace recovery key" : "Create recovery key"}
+			</button>
+			{msg && <p className="muted" style={{ marginTop: 8 }}>{msg}</p>}
+		</div>
+	);
 }
 
 function SkullmojiEditor({ me, onSaved }: { me: User; onSaved: () => void }) {
@@ -105,7 +164,17 @@ function SkullmojiEditor({ me, onSaved }: { me: User; onSaved: () => void }) {
 	);
 }
 
-export function SettingsScreen({ me, onBack, onLoggedOut }: { me: User; onBack: () => void; onLoggedOut: () => void }) {
+export function SettingsScreen({
+	me,
+	onBack,
+	onLoggedOut,
+	onTickets,
+}: {
+	me: User;
+	onBack: () => void;
+	onLoggedOut: () => void;
+	onTickets?: () => void;
+}) {
 	const [story, setStory] = useState(me.storyPrivacy);
 	const [contact, setContact] = useState(me.whoCanContact);
 	const [mapMode, setMapMode] = useState(me.mapMode);
@@ -184,6 +253,17 @@ export function SettingsScreen({ me, onBack, onLoggedOut }: { me: User; onBack: 
 					<input className="field" value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Bio" />
 				</div>
 				<button className="primary" onClick={() => void save()}>Save</button>
+				<RecoverySettings hasRecovery={!!me.hasRecovery} />
+				{onTickets && (
+					<div className="card">
+						<h3>Beta tickets</h3>
+						<p className="muted" style={{ margin: "0 0 10px", fontWeight: 600, lineHeight: 1.45 }}>
+							Bugs and features hit a webhook that runs the beta builder automation. It opens PRs. Nothing auto-merges.
+						</p>
+						<button className="pill" onClick={onTickets}>Open tickets</button>
+					</div>
+				)}
+				<GetAppCard prominent />
 				<div className="card">
 					<h3>Source</h3>
 					<a className="link" href="https://github.com/MaximusPyre/pyrechat" target="_blank" rel="noreferrer" style={{ marginTop: 0 }}>
@@ -202,65 +282,6 @@ export function SettingsScreen({ me, onBack, onLoggedOut }: { me: User; onBack: 
 					{legalMsg && <p className="muted" style={{ marginTop: 8 }}>{legalMsg}</p>}
 				</div>
 				<button className="link" onClick={() => void logout().then(onLoggedOut)}>Log out</button>
-			</div>
-		</div>
-	);
-}
-
-export function AddFriendsScreen({ onBack }: { onBack: () => void }) {
-	const [q, setQ] = useState("");
-	const [hits, setHits] = useState<{ id: string; username: string; display_name: string; skullmoji: string }[]>([]);
-	const [incoming, setIncoming] = useState<{ id: string; username: string; display_name: string; skullmoji: string }[]>([]);
-	const [quick, setQuick] = useState<{ id: string; username: string; display_name: string; skullmoji: string }[]>([]);
-
-	useEffect(() => {
-		void api<{ incoming: typeof incoming }>("/api/friends/pending").then((r) => setIncoming(r.incoming));
-		void api<{ suggestions: typeof quick }>("/api/friends/quick-add").then((r) => setQuick(r.suggestions));
-	}, []);
-
-	useEffect(() => {
-		const t = window.setTimeout(() => {
-			if (!q) { setHits([]); return; }
-			void api<{ users: typeof hits }>(`/api/users/search?q=${encodeURIComponent(q)}`).then((r) => setHits(r.users));
-		}, 200);
-		return () => window.clearTimeout(t);
-	}, [q]);
-
-	async function add(userId: string) {
-		await api("/api/friends/add", { method: "POST", body: JSON.stringify({ userId }) });
-		setIncoming((x) => x.filter((i) => i.id !== userId));
-		setQuick((x) => x.filter((i) => i.id !== userId));
-	}
-
-	return (
-		<div className="overlay-page">
-			<div className="top">
-				<button className="icon-btn" onClick={onBack}><Icon name="close" /></button>
-				<input className="search-pill" placeholder="Add by username" value={q} onChange={(e) => setQ(e.target.value)} />
-			</div>
-			<div className="list">
-				<div className="section">Added me</div>
-				{incoming.map((u) => (
-					<button key={u.id} className="row" onClick={() => void add(u.id)}>
-						<SkullmojiAvatar value={u.skullmoji} />
-						<div className="row-body"><div className="row-title">{u.display_name}</div><div className="row-sub">@{u.username} · Accept</div></div>
-					</button>
-				))}
-				<div className="section">Search</div>
-				{hits.map((u) => (
-					<button key={u.id} className="row" onClick={() => void add(u.id)}>
-						<SkullmojiAvatar value={u.skullmoji} />
-						<div className="row-body"><div className="row-title">{u.display_name}</div><div className="row-sub">@{u.username}</div></div>
-						<Icon name="add" color="#ff6a1a" />
-					</button>
-				))}
-				<div className="section">Newest accounts</div>
-				{quick.map((u) => (
-					<button key={u.id} className="row" onClick={() => void add(u.id)}>
-						<SkullmojiAvatar value={u.skullmoji} />
-						<div className="row-body"><div className="row-title">{u.display_name}</div><div className="row-sub">@{u.username}</div></div>
-					</button>
-				))}
 			</div>
 		</div>
 	);
@@ -295,7 +316,7 @@ export function MemoriesScreen({ onBack }: { onBack: () => void }) {
 
 export function FriendshipScreen({ id, onBack }: { id: string; onBack: () => void }) {
 	const [data, setData] = useState<{
-		user: { display_name: string; username: string; skullmoji: string; snap_score: number; bio: string };
+		user: { display_name: string; username: string; skullmoji: string; snap_score: number; bio: string; kindling?: number | boolean };
 		streak: { count: number; record: number } | null;
 		friendsSince: string;
 		charms: { id: string; title: string; value: string }[];
@@ -308,11 +329,13 @@ export function FriendshipScreen({ id, onBack }: { id: string; onBack: () => voi
 		<div className="overlay-page">
 			<div className="top">
 				<button className="icon-btn" onClick={onBack}><Icon name="close" /></button>
-				<div className="search-pill" style={{ justifyContent: "center" }}>{data.user.display_name}</div>
+				<div className="search-pill" style={{ justifyContent: "center" }}>
+					<DisplayName name={data.user.display_name} username={data.user.username} kindling={data.user.kindling} />
+				</div>
 			</div>
 			<div className="settings" style={{ textAlign: "center" }}>
 				<SkullmojiAvatar value={data.user.skullmoji} size={88} />
-				<h2>{data.user.display_name}</h2>
+				<h2><DisplayName name={data.user.display_name} username={data.user.username} kindling={data.user.kindling} /></h2>
 				<div className="muted">@{data.user.username}</div>
 				<div className="score">🔥 {data.streak?.count || 0} · best {data.streak?.record || 0}</div>
 				{data.charms.map((c) => (
@@ -350,7 +373,7 @@ export function SearchScreen({ onBack, onAdd }: { onBack: () => void; onAdd: (id
 					<button key={f.id} className="row" onClick={() => onAdd(f.id)}>
 						<SkullmojiAvatar value={f.skullmoji} />
 						<div className="row-body">
-							<div className="row-title">{f.display_name}</div>
+							<div className="row-title"><DisplayName name={f.display_name} username={f.username} kindling={f.kindling} /></div>
 							<div className="row-sub">@{f.username}{f.streak ? ` · 🔥 ${f.streak}` : ""}</div>
 						</div>
 					</button>

@@ -15,6 +15,9 @@ class MainActivity : BridgeActivity() {
 		registerPlugin(SnapArPlugin::class.java)
 		instance = this
 		super.onCreate(savedInstanceState)
+		if (android.os.Build.VERSION.SDK_INT >= 26) {
+			bridge.webView.importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+		}
 	}
 
 	override fun onDestroy() {

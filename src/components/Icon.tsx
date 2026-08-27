@@ -25,6 +25,24 @@ export function Icon({
 			return <svg {...p}><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>;
 		case "add":
 			return <svg {...p}><circle cx="12" cy="12" r="9" /><path d="M12 8v8M8 12h8" /></svg>;
+		case "person-add":
+			return (
+				<svg {...p}>
+					<circle cx="9" cy="8" r="3" />
+					<path d="M3 20c.8-3.2 2.8-5 6-5s5.2 1.8 6 5" />
+					<path d="M19 8v6M16 11h6" />
+				</svg>
+			);
+		case "more":
+			return (
+				<svg {...p} fill={color} stroke="none">
+					<circle cx="5" cy="12" r="1.7" />
+					<circle cx="12" cy="12" r="1.7" />
+					<circle cx="19" cy="12" r="1.7" />
+				</svg>
+			);
+		case "down":
+			return <svg {...p}><path d="M6 9l6 6 6-6" /></svg>;
 		case "close":
 			return <svg {...p}><path d="M6 6l12 12M18 6L6 18" /></svg>;
 		case "chevron":

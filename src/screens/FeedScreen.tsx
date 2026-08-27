@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, mediaUrl } from "../lib/api";
 import { Icon } from "../components/Icon";
 import { SkullmojiAvatar } from "../components/Skull";
+import { DisplayName } from "../components/DisplayName";
 import { StoriesScreen, type Story } from "./StoriesScreen";
 import { SpotlightScreen } from "./SpotlightScreen";
 
@@ -13,6 +14,7 @@ type LiveItem = {
 	username: string;
 	display_name: string;
 	skullmoji: string;
+	kindling?: number | boolean;
 };
 
 export function FeedScreen({
@@ -67,7 +69,7 @@ export function FeedScreen({
 						)}
 						<div className="feed-card-meta">
 							<SkullmojiAvatar value={item.skullmoji} size={22} />
-							<span>{item.display_name || item.username}</span>
+							<span><DisplayName name={item.display_name || item.username} username={item.username} kindling={item.kindling} /></span>
 						</div>
 					</button>
 				))}

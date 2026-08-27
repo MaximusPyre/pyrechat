@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, mediaUrl } from "../lib/api";
 import { Icon } from "../components/Icon";
 import { SkullmojiAvatar } from "../components/Skull";
+import { DisplayName } from "../components/DisplayName";
 
 export type Story = {
 	id: string;
@@ -13,6 +14,7 @@ export type Story = {
 	username?: string;
 	display_name?: string;
 	skullmoji?: string;
+	kindling?: number | boolean;
 };
 
 export function StoriesScreen({
@@ -61,7 +63,7 @@ export function StoriesScreen({
 					{friendGroups.map((g) => (
 						<button key={g.userId} className="story-item" onClick={() => onOpen(g.items, 0)}>
 							<SkullmojiAvatar value={g.items[0].skullmoji} ring size={64} />
-							<span>{g.items[0].display_name}</span>
+							<span><DisplayName name={g.items[0].display_name || ""} username={g.items[0].username} kindling={g.items[0].kindling} /></span>
 						</button>
 					))}
 				</div>
@@ -72,7 +74,7 @@ export function StoriesScreen({
 					<button key={s.id} className="row" onClick={() => onOpen(discover, i)}>
 						<SkullmojiAvatar value={s.skullmoji} ring />
 						<div className="row-body">
-							<div className="row-title">{s.display_name || s.username}</div>
+							<div className="row-title"><DisplayName name={s.display_name || s.username || ""} username={s.username} kindling={s.kindling} /></div>
 							<div className="row-sub">{s.caption || "Story"}</div>
 						</div>
 					</button>
@@ -121,7 +123,7 @@ export function StoryViewer({
 			<div className="timer-bar"><i style={{ animationDuration: "5s" }} /></div>
 			<div className="top">
 				<SkullmojiAvatar value={s.skullmoji} size={32} />
-				<strong>{s.display_name || "Story"}</strong>
+				<strong><DisplayName name={s.display_name || "Story"} username={s.username} kindling={s.kindling} /></strong>
 				<button className="icon-btn" onClick={(e) => { e.stopPropagation(); onClose(); }}><Icon name="close" /></button>
 			</div>
 			{s.kind === "video" ? <video src={mediaUrl(s.media_key)} autoPlay playsInline /> : <img src={mediaUrl(s.media_key)} alt="" />}

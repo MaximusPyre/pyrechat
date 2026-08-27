@@ -2,11 +2,11 @@ import type { CSSProperties } from "react";
 import type { Skullmoji } from "../lib/types";
 
 const DEFAULT: Skullmoji = {
-	color: "#FF6A1A",
+	color: "#c45e32",
 	eyes: "hollow",
 	jaw: "grin",
 	hat: "none",
-	bg: "#111111",
+	bg: "#1c2124",
 };
 
 export function parseSkullmoji(raw: unknown): Skullmoji {
@@ -26,10 +26,12 @@ export function SkullmojiAvatar({
 	value,
 	size = 44,
 	ring,
+	preview,
 }: {
 	value?: unknown;
 	size?: number;
 	ring?: boolean;
+	preview?: string | null;
 }) {
 	const s = parseSkullmoji(value);
 	const style: CSSProperties = {
@@ -40,8 +42,17 @@ export function SkullmojiAvatar({
 		display: "grid",
 		placeItems: "center",
 		flexShrink: 0,
-		boxShadow: ring ? "0 0 0 2px #000, 0 0 0 4px #FF6A1A" : undefined,
+		overflow: "hidden",
+		position: "relative",
+		boxShadow: ring || preview ? "0 0 0 2px #141618, 0 0 0 4px #4d8a8e" : undefined,
 	};
+	const media = preview ? (
+		preview.match(/\.(webm|mp4|mov)(\?|$)/i) ? (
+			<video src={preview} muted playsInline autoPlay loop style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+		) : (
+			<img src={preview} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+		)
+	) : null;
 	const eye =
 		s.eyes === "dots" ? (
 			<>
@@ -81,7 +92,8 @@ export function SkullmojiAvatar({
 		) : null;
 	return (
 		<div style={style} aria-hidden>
-			<svg viewBox="0 0 64 64" width={size * 0.78} height={size * 0.78} fill="none" stroke="#fff" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round">
+			{media}
+			<svg viewBox="0 0 64 64" width={size * 0.78} height={size * 0.78} fill="none" stroke="#fff" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" style={{ position: "relative", opacity: media ? 0 : 1 }}>
 				{hat}
 				<path d="M32 10c10.5 0 18 7.2 18 18 0 5-1.4 8.8-3.6 12l1.8 9.2c.3 1.5-.8 3-2.4 3.3H18.2c-1.6-.3-2.7-1.8-2.4-3.3l1.8-9.2C15.4 36.8 14 33 14 28 14 17.2 21.5 10 32 10Z" />
 				{eye}
@@ -94,7 +106,7 @@ export function SkullmojiAvatar({
 }
 
 export function SkullLogo({ size = 72, orange = false }: { size?: number; orange?: boolean }) {
-	const stroke = orange ? "#FF6A1A" : "#fff";
+	const stroke = orange ? "#c45e32" : "#f3eee6";
 	return (
 		<svg viewBox="0 0 64 64" width={size} height={size} fill="none" stroke={stroke} strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" aria-hidden>
 			<path d="M32 8c10.5 0 20 7.6 20 20 0 5.2-1.5 9.2-4 12.6l2 10.2c.4 1.7-.9 3.4-2.7 3.8H16.7c-1.8-.4-3.1-2.1-2.7-3.8l2-10.2C13.5 37.2 12 33.2 12 28 12 15.6 21.5 8 32 8Z" />
