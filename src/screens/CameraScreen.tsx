@@ -50,6 +50,80 @@ function recMime(): string | undefined {
 	return opts.find((t) => MediaRecorder.isTypeSupported(t));
 }
 
+let nativeCamPermAsked = false;
+
+function stopTracks(stream: MediaStream | null): void {
+	if (!stream) return;
+	for (const track of stream.getTracks()) {
+		track.stop();
+		stream.removeTrack(track);
+	}
+}
+
+function dropAudio(stream: MediaStream | null): void {
+	if (!stream) return;
+	for (const track of stream.getAudioTracks()) {
+		track.stop();
+		stream.removeTrack(track);
+	}
+}
+
+function bindPreview(video: HTMLVideoElement, stream: MediaStream): Promise<void> {
+	video.muted = true;
+	video.defaultMuted = true;
+	video.volume = 0;
+	video.playsInline = true;
+	video.setAttribute("playsinline", "true");
+	video.setAttribute("webkit-playsinline", "true");
+	video.srcObject = stream;
+	return video.play().then(
+		() => undefined,
+		() => undefined,
+	);
+}
+
+function useAppVisible(): boolean {
+	const [visible, setVisible] = useState(() => document.visibilityState === "visible");
+	useEffect(() => {
+		let appActive = true;
+		const sync = () => {
+			setVisible(appActive && document.visibilityState === "visible");
+		};
+		const onHide = () => {
+			appActive = false;
+			setVisible(false);
+		};
+		const onShow = () => {
+			appActive = true;
+			sync();
+		};
+		document.addEventListener("visibilitychange", sync);
+		window.addEventListener("pagehide", onHide);
+		window.addEventListener("pageshow", onShow);
+		let remove: (() => void) | undefined;
+		void import("@capacitor/app")
+			.then(({ App }) =>
+				App.addListener("appStateChange", ({ isActive }) => {
+					appActive = isActive;
+					sync();
+				}),
+			)
+			.then((handle) => {
+				remove = () => {
+					void handle.remove();
+				};
+			})
+			.catch(() => undefined);
+		return () => {
+			document.removeEventListener("visibilitychange", sync);
+			window.removeEventListener("pagehide", onHide);
+			window.removeEventListener("pageshow", onShow);
+			remove?.();
+		};
+	}, []);
+	return visible;
+}
+
 function revokePreview(url: string): void {
 	if (url.startsWith("blob:")) URL.revokeObjectURL(url);
 }
@@ -137,22 +211,48 @@ export function CameraScreen({
 	const lastTap = useRef(0);
 	const pinchStart = useRef(0);
 	const zoomRef = useRef(1);
+	const bootDelay = useRef(true);
+	const foreground = useAppVisible();
 	facingRef.current = facing;
 	gradeRef.current = grade;
 	lensRef.current = lens;
 
+	const killStream = useCallback(() => {
+		camGen.current += 1;
+		window.clearTimeout(holdTimer.current);
+		holdTimer.current = 0;
+		shutterArmed.current = false;
+		held.current = false;
+		if (recRef.current) {
+			try {
+				if (recRef.current.state === "recording") recRef.current.stop();
+			} catch {
+				/* already stopped */
+			}
+			recRef.current = null;
+		}
+		stopTracks(streamRef.current);
+		streamRef.current = null;
+		const video = videoRef.current;
+		if (video) video.srcObject = null;
+		setRecording(false);
+	}, []);
+
 	const startCam = useCallback(async () => {
 		const gen = ++camGen.current;
-		streamRef.current?.getTracks().forEach((t) => t.stop());
+		stopTracks(streamRef.current);
 		streamRef.current = null;
 		paintedRef.current = false;
 		setPainted(false);
 		setCamState("ask");
 		try {
-			if (Capacitor.isNativePlatform()) {
+			if (Capacitor.isNativePlatform() && !nativeCamPermAsked) {
+				nativeCamPermAsked = true;
 				await Camera.requestPermissions({ permissions: ["camera"] });
 			}
+			if (gen !== camGen.current) return;
 			const stream = await navigator.mediaDevices.getUserMedia({
+				audio: false,
 				video: {
 					facingMode: { ideal: facing },
 					width: { ideal: 720 },
@@ -163,36 +263,56 @@ export function CameraScreen({
 			widenFov(stream);
 			zoomRef.current = 1;
 			if (gen !== camGen.current) {
-				stream.getTracks().forEach((t) => t.stop());
+				stopTracks(stream);
 				return;
 			}
 			streamRef.current = stream;
-			const video = videoRef.current;
-			if (video) {
-				video.srcObject = stream;
-				await video.play();
+			try {
+				const video = videoRef.current;
+				if (video) await bindPreview(video, stream);
+			} catch {
+				if (gen !== camGen.current) {
+					stopTracks(stream);
+					streamRef.current = null;
+					return;
+				}
+				stopTracks(stream);
+				streamRef.current = null;
+				setCamState("denied");
+				return;
 			}
 			if (gen !== camGen.current) {
-				stream.getTracks().forEach((t) => t.stop());
+				stopTracks(stream);
+				streamRef.current = null;
 				return;
 			}
 			setCamState("live");
 		} catch (e) {
+			if (gen !== camGen.current) return;
 			const name = e instanceof DOMException ? e.name : "";
 			setCamState(name === "NotFoundError" ? "missing" : "denied");
 		}
 	}, [facing]);
 
 	useEffect(() => {
-		if (!active || capture) {
-			streamRef.current?.getTracks().forEach((t) => t.stop());
-			streamRef.current = null;
-			if (!active) setCamState("off");
+		if (!active || !foreground || capture) {
+			killStream();
+			if (!active || !foreground) setCamState("off");
 			return;
 		}
-		void startCam();
-		return () => streamRef.current?.getTracks().forEach((t) => t.stop());
-	}, [startCam, capture, active]);
+		let timer = 0;
+		if (bootDelay.current) {
+			bootDelay.current = false;
+			setCamState("ask");
+			timer = window.setTimeout(() => void startCam(), 240);
+		} else {
+			void startCam();
+		}
+		return () => {
+			window.clearTimeout(timer);
+			killStream();
+		};
+	}, [startCam, capture, active, foreground, killStream]);
 
 	useEffect(() => {
 		if (lens === "none" || capture || camState !== "live") {
@@ -267,8 +387,13 @@ export function CameraScreen({
 	async function ensureMic(): Promise<void> {
 		const cam = streamRef.current;
 		if (!cam || cam.getAudioTracks().length) return;
+		const gen = camGen.current;
 		try {
 			const mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+			if (gen !== camGen.current || streamRef.current !== cam) {
+				stopTracks(mic);
+				return;
+			}
 			for (const track of mic.getAudioTracks()) cam.addTrack(track);
 		} catch {
 			/* video-only still records */
@@ -347,8 +472,10 @@ export function CameraScreen({
 
 	async function startRec() {
 		const cam = streamRef.current;
-		if (!cam || recRef.current) return;
+		if (!active || !cam || recRef.current) return;
+		const gen = camGen.current;
 		await ensureMic();
+		if (gen !== camGen.current || streamRef.current !== cam || recRef.current) return;
 		buzz(20);
 		const live = liveRef.current;
 		const lensOn = lensRef.current !== "none" && Boolean(live?.width);
@@ -364,6 +491,7 @@ export function CameraScreen({
 		rec.onstop = () => {
 			overlay?.getVideoTracks().forEach((t) => t.stop());
 			recRef.current = null;
+			dropAudio(streamRef.current);
 			const blob = new Blob(chunksRef.current, { type: mime || "video/webm" });
 			if (!blob.size) return;
 			void blobToPreviewUrl(blob).then((url) => {
@@ -384,6 +512,7 @@ export function CameraScreen({
 
 	function onShutterDown(e: PointerEvent<HTMLButtonElement>) {
 		e.preventDefault();
+		if (!active) return;
 		e.currentTarget.setPointerCapture(e.pointerId);
 		shutterArmed.current = true;
 		held.current = false;
@@ -394,13 +523,13 @@ export function CameraScreen({
 		}, HOLD_MS);
 	}
 
-	function onShutterUp(e: PointerEvent<HTMLButtonElement>) {
+	function endShutter(e: PointerEvent<HTMLButtonElement>, take: boolean) {
 		e.preventDefault();
 		if (!shutterArmed.current) return;
 		shutterArmed.current = false;
 		window.clearTimeout(holdTimer.current);
 		if (held.current) stopRec();
-		else void snapPhoto();
+		else if (take) void snapPhoto();
 		held.current = false;
 	}
 
@@ -705,8 +834,9 @@ export function CameraScreen({
 							className={`shutter ${recording ? "rec" : ""}`}
 							aria-label={recording ? "Stop recording" : "Capture"}
 							onPointerDown={onShutterDown}
-							onPointerUp={onShutterUp}
-							onPointerCancel={onShutterUp}
+							onPointerUp={(e) => endShutter(e, true)}
+							onPointerCancel={(e) => endShutter(e, false)}
+							onLostPointerCapture={(e) => endShutter(e, false)}
 						/>
 						<button
 							className="tool"

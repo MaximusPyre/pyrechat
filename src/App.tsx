@@ -293,7 +293,7 @@ export default function App() {
 	const capture = (
 		<Suspense fallback={<ScreenFallback />}>
 			<CameraScreen
-				active={desktop ? tab === "capture" : Math.abs(TAB_IDS.indexOf(tab) - 1) <= 1}
+				active={tab === "capture" && !overlay && !inboxSnap}
 				onOpenMemories={() => setOverlay({ t: "memories" })}
 				onClose={desktop ? () => setTab("inbox") : undefined}
 			/>
