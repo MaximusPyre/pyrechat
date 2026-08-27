@@ -9,6 +9,7 @@ interface __BaseEnv_Env {
 	BETA_OPEN: "1";
 	EARLY_COHORT: "1";
 	CURSOR_REPO: string;
+	PLAY_STORE_URL: string;
 	SESSION_SECRET: string;
 	ADMIN_PASSWORD: string;
 	FOUNDER_RECOVERY_HASH: string;

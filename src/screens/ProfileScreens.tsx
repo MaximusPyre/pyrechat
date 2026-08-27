@@ -164,6 +164,36 @@ function SkullmojiEditor({ me, onSaved }: { me: User; onSaved: () => void }) {
 	);
 }
 
+function WaitlistAdmin() {
+	const [count, setCount] = useState<number | null>(null);
+	useEffect(() => {
+		void api<{ count: number }>("/api/waitlist")
+			.then((r) => setCount(r.count))
+			.catch(() => setCount(null));
+	}, []);
+
+	async function download(): Promise<void> {
+		const r = await api<{ emails: { email: string; source: string; created_at: string }[] }>("/api/waitlist");
+		const csv = ["email,source,created_at", ...r.emails.map((row) => `${row.email},${row.source},${row.created_at}`)].join("\n");
+		const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = "pyrechat-waitlist.csv";
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	return (
+		<div className="card">
+			<h3>Launch waitlist</h3>
+			<p className="muted" style={{ margin: "0 0 10px", fontWeight: 600 }}>
+				{count == null ? "…" : `${count} email${count === 1 ? "" : "s"}`} — this is our list, not Google Play’s.
+			</p>
+			<button className="pill" type="button" onClick={() => void download()}>Download CSV</button>
+		</div>
+	);
+}
+
 export function SettingsScreen({
 	me,
 	onBack,
@@ -264,6 +294,7 @@ export function SettingsScreen({
 					</div>
 				)}
 				<GetAppCard prominent />
+				{me.founder && <WaitlistAdmin />}
 				<div className="card">
 					<h3>Source</h3>
 					<a className="link" href="https://github.com/MaximusPyre/pyrechat" target="_blank" rel="noreferrer" style={{ marginTop: 0 }}>

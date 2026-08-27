@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent, type TouchEvent } from "react";
 import { Camera } from "@capacitor/camera";
 import { Capacitor } from "@capacitor/core";
 import { api, uploadMedia } from "../lib/api";
@@ -87,11 +87,15 @@ async function canvasToJpeg(src: HTMLCanvasElement): Promise<{ blob: Blob; url: 
 export function CameraScreen({
 	onOpenMemories,
 	onClose,
+	onNeedAccount,
 	active = true,
+	demo = false,
 }: {
 	onOpenMemories: () => void;
 	onClose?: () => void;
+	onNeedAccount?: () => void;
 	active?: boolean;
+	demo?: boolean;
 }) {
 	const videoRef = useRef<HTMLVideoElement>(null);
 	const liveRef = useRef<HTMLCanvasElement>(null);
@@ -104,10 +108,11 @@ export function CameraScreen({
 	const shutterArmed = useRef(false);
 	const [facing, setFacing] = useState<"user" | "environment">("user");
 	const [grade, setGrade] = useState<GradeId>("none");
-	const [lens, setLens] = useState<LensId>("none");
+	const [lens, setLens] = useState<LensId>(demo ? "ember" : "none");
 	const [camState, setCamState] = useState<CamState>("off");
 	const [painted, setPainted] = useState(false);
 	const [recording, setRecording] = useState(false);
+	const [torch, setTorch] = useState(false);
 	const [capture, setCapture] = useState<Capture | null>(null);
 	const [caption, setCaption] = useState("");
 	const [drawing, setDrawing] = useState(false);
@@ -125,6 +130,9 @@ export function CameraScreen({
 	const lensRef = useRef(lens);
 	const camGen = useRef(0);
 	const paintedRef = useRef(false);
+	const lastTap = useRef(0);
+	const pinchStart = useRef(0);
+	const zoomRef = useRef(1);
 	facingRef.current = facing;
 	gradeRef.current = grade;
 	lensRef.current = lens;
@@ -143,17 +151,12 @@ export function CameraScreen({
 			const stream = await navigator.mediaDevices.getUserMedia({
 				video: {
 					facingMode: { ideal: facing },
-					width: { ideal: 1080 },
-					height: { ideal: 1440 },
+					width: { ideal: 1280 },
+					height: { ideal: 1920 },
 				},
 			});
 			widenFov(stream);
-			try {
-				const mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-				for (const track of mic.getAudioTracks()) stream.addTrack(track);
-			} catch {
-				/* still useful for photos */
-			}
+			zoomRef.current = 1;
 			if (gen !== camGen.current) {
 				stream.getTracks().forEach((t) => t.stop());
 				return;
@@ -231,9 +234,76 @@ export function CameraScreen({
 		if (ctx && !hasInk) ctx.clearRect(0, 0, canvas.width, canvas.height);
 	}, [capture, hasInk, pen]);
 
+	function buzz(ms = 12): void {
+		try {
+			navigator.vibrate(ms);
+		} catch {
+			/* web vibrate optional */
+		}
+		void import("@capacitor/haptics")
+			.then(({ Haptics, ImpactStyle }) => Haptics.impact({ style: ImpactStyle.Light }))
+			.catch(() => undefined);
+	}
+
+	async function ensureMic(): Promise<void> {
+		const cam = streamRef.current;
+		if (!cam || cam.getAudioTracks().length) return;
+		try {
+			const mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+			for (const track of mic.getAudioTracks()) cam.addTrack(track);
+		} catch {
+			/* video-only still records */
+		}
+	}
+
+	function applyZoom(z: number): void {
+		const track = streamRef.current?.getVideoTracks()[0];
+		if (!track?.getCapabilities) return;
+		const caps = track.getCapabilities() as MediaTrackCapabilities & { zoom?: { min: number; max: number } };
+		if (typeof caps.zoom?.min !== "number" || typeof caps.zoom.max !== "number") return;
+		const next = Math.min(caps.zoom.max, Math.max(caps.zoom.min, z));
+		zoomRef.current = next;
+		void track.applyConstraints({ advanced: [{ zoom: next }] } as unknown as MediaTrackConstraints);
+	}
+
+	function flipCam(): void {
+		setTorch(false);
+		setFacing((f) => (f === "user" ? "environment" : "user"));
+		buzz(8);
+	}
+
+	async function toggleTorch(): Promise<void> {
+		const track = streamRef.current?.getVideoTracks()[0];
+		if (!track?.getCapabilities) return;
+		const caps = track.getCapabilities() as MediaTrackCapabilities & { torch?: boolean };
+		if (!caps.torch) return;
+		const next = !torch;
+		try {
+			await track.applyConstraints({ advanced: [{ torch: next }] } as unknown as MediaTrackConstraints);
+			setTorch(next);
+		} catch {
+			setTorch(false);
+		}
+	}
+
+	function onViewTap(e: PointerEvent<HTMLDivElement>): void {
+		if ((e.target as HTMLElement).closest("button, input, textarea")) return;
+		const now = Date.now();
+		if (now - lastTap.current < 280) {
+			lastTap.current = 0;
+			flipCam();
+		} else lastTap.current = now;
+	}
+
+	function pinchDistance(e: TouchEvent): number {
+		if (e.touches.length < 2) return 0;
+		return Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+	}
+
 	async function snapPhoto() {
 		const canvas = liveRef.current;
 		if (!canvas?.width) return;
+		buzz(18);
 		const shot = await canvasToJpeg(canvas);
 		if (!shot) return;
 		setHasInk(false);
@@ -241,10 +311,12 @@ export function CameraScreen({
 		setCapture({ blob: shot.blob, url: shot.url, kind: "photo" });
 	}
 
-	function startRec() {
+	async function startRec() {
 		const canvas = liveRef.current;
 		const cam = streamRef.current;
 		if (!canvas?.width || !cam || recRef.current) return;
+		await ensureMic();
+		buzz(20);
 		const drawn = canvas.captureStream(30);
 		const mixed = new MediaStream([...drawn.getVideoTracks(), ...cam.getAudioTracks()]);
 		chunksRef.current = [];
@@ -282,7 +354,7 @@ export function CameraScreen({
 		window.clearTimeout(holdTimer.current);
 		holdTimer.current = window.setTimeout(() => {
 			held.current = true;
-			startRec();
+			void startRec();
 		}, HOLD_MS);
 	}
 
@@ -322,6 +394,10 @@ export function CameraScreen({
 	}
 
 	async function openSend() {
+		if (demo) {
+			onNeedAccount?.();
+			return;
+		}
 		const data = await api<{ friends: Friend[] }>("/api/friends");
 		setFriends(data.friends.filter((f) => f.status === "accepted"));
 		setSendOpen(true);
@@ -498,7 +574,21 @@ export function CameraScreen({
 	const blocked = camState === "denied" || camState === "missing";
 
 	return (
-		<div className="camera">
+		<div
+			className={`camera ${demo ? "demo" : ""}`}
+			onPointerDown={onViewTap}
+			onTouchStart={(e) => {
+				if (e.touches.length === 2) pinchStart.current = pinchDistance(e) / Math.max(0.01, zoomRef.current);
+			}}
+			onTouchMove={(e) => {
+				if (e.touches.length < 2 || !pinchStart.current) return;
+				e.preventDefault();
+				applyZoom(pinchDistance(e) / pinchStart.current);
+			}}
+			onTouchEnd={(e) => {
+				if (e.touches.length < 2) pinchStart.current = 0;
+			}}
+		>
 			<video
 				ref={videoRef}
 				className={`cam-src filter-${grade}`}
@@ -528,6 +618,7 @@ export function CameraScreen({
 				</div>
 			)}
 			<div className="cam-ui">
+				{!demo && (
 				<div className="cam-top">
 					{onClose ? (
 						<button className="icon-btn solid" onClick={onClose} aria-label="Close camera">
@@ -541,6 +632,7 @@ export function CameraScreen({
 					)}
 					<button className="icon-btn solid" onClick={onOpenMemories} aria-label="Library"><Icon name="mem" size={18} /></button>
 				</div>
+				)}
 				<div className="cam-dock">
 					<div className="lens-row">
 						{LENSES.map((l) => (
@@ -560,7 +652,13 @@ export function CameraScreen({
 						))}
 					</div>
 					<div className="shutter-row">
-						<span className="dock-spacer" />
+						{facing === "environment" ? (
+							<button className={`tool ${torch ? "on" : ""}`} onClick={() => void toggleTorch()} aria-label="Flash">
+								<Icon name="ember" size={18} color={torch ? "#fff" : undefined} />
+							</button>
+						) : (
+							<span className="dock-spacer" />
+						)}
 						<button
 							className={`shutter ${recording ? "rec" : ""}`}
 							aria-label={recording ? "Stop recording" : "Capture"}
@@ -570,7 +668,7 @@ export function CameraScreen({
 						/>
 						<button
 							className="tool"
-							onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}
+							onClick={flipCam}
 							title="Flip camera"
 							aria-label="Flip camera"
 						>

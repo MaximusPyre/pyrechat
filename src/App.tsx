@@ -6,6 +6,8 @@ import { MUTE, TEAL } from "./lib/brand";
 import { Icon } from "./components/Icon";
 import { DeskHome } from "./components/DeskHome";
 import { AuthScreen } from "./screens/AuthScreen";
+import { GuestHome } from "./screens/GuestHome";
+import { LegalScreen } from "./screens/LegalScreens";
 import { ChatListScreen } from "./screens/ChatScreens";
 import { AddFriendsScreen } from "./screens/AddFriendsScreen";
 import { RecoveryKeySheet } from "./components/RecoveryKey";
@@ -112,6 +114,7 @@ export default function App() {
 	const [inboxSnap, setInboxSnap] = useState<string | null>(null);
 	const [pendingRecovery, setPendingRecovery] = useState<string | null>(null);
 	const issuingRecovery = useRef(false);
+	const [path, setPath] = useState(() => location.pathname);
 	const desktop = useDesktop();
 
 	const refreshMe = useCallback(async () => {
@@ -138,6 +141,12 @@ export default function App() {
 	useEffect(() => {
 		void refreshMe().finally(() => setBooting(false));
 	}, [refreshMe]);
+
+	useEffect(() => {
+		const onPop = () => setPath(location.pathname);
+		window.addEventListener("popstate", onPop);
+		return () => window.removeEventListener("popstate", onPop);
+	}, []);
 
 	useEffect(() => {
 		if (!user) return;
@@ -218,7 +227,13 @@ export default function App() {
 			</div>
 		);
 	}
-	if (!user) return <AuthScreen onAuthed={setUser} />;
+	if (path === "/privacy" || path === "/terms") {
+		return <LegalScreen kind={path === "/privacy" ? "privacy" : "terms"} />;
+	}
+	if (!user) {
+		if (path === "/login") return <AuthScreen onAuthed={setUser} />;
+		return <GuestHome onAuthed={setUser} />;
+	}
 	if (!user.hasRecovery && !pendingRecovery) {
 		return (
 			<div className="auth">

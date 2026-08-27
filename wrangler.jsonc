@@ -24,7 +24,8 @@
 		"PUBLIC_APP_URL": "https://chat.pyrearms.dev",
 		"EARLY_COHORT": "1",
 		"BETA_OPEN": "1",
-		"CURSOR_REPO": "https://github.com/MaximusPyre/pyrechat"
+		"CURSOR_REPO": "https://github.com/MaximusPyre/pyrechat",
+		"PLAY_STORE_URL": "https://play.google.com/store/apps/details?id=dev.pyrearms.chat"
 	},
 	"analytics_engine_datasets": [
 		{ "binding": "ANALYTICS", "dataset": "pyrechat_events" }

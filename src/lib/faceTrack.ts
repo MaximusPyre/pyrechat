@@ -75,7 +75,7 @@ export function landmarksToPts(result: FaceLandmarkerResult | null, mirror: bool
 	return raw.map((p) => ({ x: mirror ? 1 - p.x : p.x, y: p.y }));
 }
 
-export function smoothPts(prev: Pt[] | null, next: Pt[], alpha = 0.38): Pt[] {
+export function smoothPts(prev: Pt[] | null, next: Pt[], alpha = 0.26): Pt[] {
 	if (!prev || prev.length !== next.length) return next;
 	return next.map((p, i) => ({
 		x: prev[i].x * (1 - alpha) + p.x * alpha,
@@ -144,43 +144,60 @@ function drawLens(ctx: CanvasRenderingContext2D, pts: Pt[], w: number, h: number
 		const cy = (forehead.y + chin.y) / 2 - faceH * 0.04;
 		const rx = eyeSpan * 0.95;
 		const ry = faceH * 0.42;
-		ctx.strokeStyle = "#fff";
-		ctx.lineWidth = Math.max(2.2, faceH * 0.018);
+		const bone = ctx.createRadialGradient(cx, cy - ry * 0.2, 8, cx, cy, rx);
+		bone.addColorStop(0, "#f4f0e6");
+		bone.addColorStop(1, "#b9b0a4");
+		ctx.fillStyle = bone;
 		ctx.beginPath();
 		ctx.ellipse(cx, cy - ry * 0.08, rx, ry, 0, 0, Math.PI * 2);
-		ctx.stroke();
+		ctx.fill();
 		ctx.fillStyle = INK;
 		ctx.beginPath();
-		ctx.ellipse(leftEye.x, leftEye.y, eyeSpan * 0.16, eyeSpan * 0.2, 0, 0, Math.PI * 2);
-		ctx.ellipse(rightEye.x, rightEye.y, eyeSpan * 0.16, eyeSpan * 0.2, 0, 0, Math.PI * 2);
+		ctx.ellipse(leftEye.x, leftEye.y, eyeSpan * 0.18, eyeSpan * 0.22, 0, 0, Math.PI * 2);
+		ctx.ellipse(rightEye.x, rightEye.y, eyeSpan * 0.18, eyeSpan * 0.22, 0, 0, Math.PI * 2);
 		ctx.fill();
+		ctx.fillStyle = EMBER;
+		ctx.beginPath();
+		ctx.ellipse(leftEye.x, leftEye.y, eyeSpan * 0.05, eyeSpan * 0.06, 0, 0, Math.PI * 2);
+		ctx.ellipse(rightEye.x, rightEye.y, eyeSpan * 0.05, eyeSpan * 0.06, 0, 0, Math.PI * 2);
+		ctx.fill();
+		ctx.strokeStyle = "#2a2420";
+		ctx.lineWidth = Math.max(2.2, faceH * 0.016);
 		ctx.beginPath();
 		ctx.moveTo(cx, nose.y - 4);
 		ctx.lineTo(cx, nose.y + faceH * 0.08);
 		ctx.stroke();
 		ctx.beginPath();
-		ctx.arc(cx, chin.y - faceH * 0.18, rx * 0.42, 0.15 * Math.PI, 0.85 * Math.PI);
+		ctx.arc(cx, chin.y - faceH * 0.18, rx * 0.42, 0.12 * Math.PI, 0.88 * Math.PI);
 		ctx.stroke();
+		for (let i = -2; i <= 2; i++) {
+			ctx.beginPath();
+			ctx.moveTo(cx + i * rx * 0.12, chin.y - faceH * 0.2);
+			ctx.lineTo(cx + i * rx * 0.12, chin.y - faceH * 0.12);
+			ctx.stroke();
+		}
 	}
 
 	if (lens === "fire") {
-		ctx.fillStyle = EMBER;
-		for (let i = 0; i < 5; i++) {
-			const t = (i - 2) / 2;
-			const x = forehead.x + t * eyeSpan * 0.45;
-			const y = forehead.y - faceH * 0.08;
-			const hh = faceH * (0.16 + Math.abs(Math.sin(performance.now() / 180 + i)) * 0.08);
+		const tnow = performance.now();
+		for (let i = 0; i < 9; i++) {
+			const t = (i - 4) / 4;
+			const flicker = 0.55 + Math.sin(tnow / 90 + i * 1.3) * 0.45;
+			const x = forehead.x + t * eyeSpan * 0.62;
+			const y = forehead.y - faceH * 0.02;
+			const hh = faceH * (0.14 + Math.abs(Math.sin(tnow / 140 + i)) * 0.16) * flicker;
+			ctx.fillStyle = i % 2 ? EMBER : "#ff7a2a";
 			ctx.beginPath();
 			ctx.moveTo(x, y);
-			ctx.quadraticCurveTo(x - 10, y - hh * 0.5, x, y - hh);
-			ctx.quadraticCurveTo(x + 10, y - hh * 0.5, x, y);
+			ctx.quadraticCurveTo(x - 12 * flicker, y - hh * 0.5, x + Math.sin(tnow / 80 + i) * 6, y - hh);
+			ctx.quadraticCurveTo(x + 12 * flicker, y - hh * 0.5, x, y);
 			ctx.fill();
 		}
-		ctx.fillStyle = "#ffd27a";
+		ctx.fillStyle = "#ffe08a";
 		ctx.beginPath();
-		ctx.moveTo(forehead.x, forehead.y - 4);
-		ctx.quadraticCurveTo(forehead.x - 6, forehead.y - faceH * 0.14, forehead.x, forehead.y - faceH * 0.22);
-		ctx.quadraticCurveTo(forehead.x + 6, forehead.y - faceH * 0.14, forehead.x, forehead.y - 4);
+		ctx.moveTo(forehead.x, forehead.y);
+		ctx.quadraticCurveTo(forehead.x - 8, forehead.y - faceH * 0.16, forehead.x, forehead.y - faceH * 0.28);
+		ctx.quadraticCurveTo(forehead.x + 8, forehead.y - faceH * 0.16, forehead.x, forehead.y);
 		ctx.fill();
 	}
 
@@ -206,18 +223,22 @@ function drawLens(ctx: CanvasRenderingContext2D, pts: Pt[], w: number, h: number
 
 	if (lens === "shade") {
 		const r = eyeSpan * 0.28;
-		ctx.fillStyle = "#111";
-		ctx.strokeStyle = "#fff";
-		ctx.lineWidth = 2;
+		ctx.fillStyle = "#0b0b0c";
+		ctx.strokeStyle = "#f2e6c9";
+		ctx.lineWidth = Math.max(2, faceH * 0.012);
 		ctx.beginPath();
-		roundRect(ctx, leftEye.x - r, leftEye.y - r * 0.55, r * 1.9, r * 1.15, 6);
-		roundRect(ctx, rightEye.x - r * 0.9, rightEye.y - r * 0.55, r * 1.9, r * 1.15, 6);
+		roundRect(ctx, leftEye.x - r, leftEye.y - r * 0.55, r * 1.9, r * 1.15, r * 0.35);
+		roundRect(ctx, rightEye.x - r * 0.9, rightEye.y - r * 0.55, r * 1.9, r * 1.15, r * 0.35);
 		ctx.fill();
 		ctx.stroke();
 		ctx.beginPath();
 		ctx.moveTo(leftEye.x + r * 0.95, (leftEye.y + rightEye.y) / 2);
 		ctx.lineTo(rightEye.x - r * 0.95, (leftEye.y + rightEye.y) / 2);
 		ctx.stroke();
+		ctx.fillStyle = "#ffffff33";
+		ctx.beginPath();
+		ctx.ellipse(leftEye.x - r * 0.15, leftEye.y - r * 0.12, r * 0.35, r * 0.12, -0.4, 0, Math.PI * 2);
+		ctx.fill();
 	}
 
 	if (lens === "ember") {

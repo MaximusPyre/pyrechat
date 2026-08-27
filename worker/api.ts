@@ -57,6 +57,7 @@ import {
 	type TicketKind,
 	type TicketRow,
 } from "./lib/tickets.js";
+import { normalizeWaitlistEmail, waitlistSource } from "./lib/waitlist.js";
 import {
 	bad,
 	bumpScore,
@@ -279,6 +280,7 @@ app.use("/api/*", async (c, next) => {
 	if (c.req.path === "/api/health") return next();
 	if (c.req.path === "/api/download/android") return next();
 	if (c.req.path === "/api/app") return next();
+	if (c.req.path === "/api/waitlist" && c.req.method === "POST") return next();
 	if (c.req.path.startsWith("/api/internal/")) return next();
 	if (c.req.method === "OPTIONS") return next();
 	const auth = await requireUser(c.req.raw, c.env);
@@ -1740,7 +1742,35 @@ app.get("/api/health", (_c) => json({ ok: true }));
 
 app.get("/api/app", async (c) => {
 	const [android, notice] = await Promise.all([androidRelease(c.env), latestAppNotice(c.env)]);
-	return json({ android, notice });
+	return json({
+		android,
+		notice,
+		playUrl: c.env.PLAY_STORE_URL || "https://play.google.com/store/apps/details?id=dev.pyrearms.chat",
+		privacyUrl: "https://chat.pyrearms.dev/privacy",
+	});
+});
+
+app.post("/api/waitlist", async (c) => {
+	if (await rateLimited(c.req.raw, "waitlist", 8, 3600)) return bad("Too many attempts", 429);
+	const body = await c.req.json<{ email?: string; source?: string }>().catch(() => ({} as { email?: string; source?: string }));
+	const email = normalizeWaitlistEmail(body.email || "");
+	if (!email) return bad("Enter a real email");
+	const source = waitlistSource(body.source);
+	const ua = (c.req.header("User-Agent") || "").slice(0, 240);
+	await c.env.DB.prepare(
+		"INSERT OR IGNORE INTO waitlist (email, source, created_at, user_agent) VALUES (?, ?, ?, ?)",
+	)
+		.bind(email, source, nowIso(), ua || null)
+		.run();
+	return json({ ok: true });
+});
+
+app.get("/api/waitlist", async (c) => {
+	if (!isFounderUsername(c.get("user").username)) return bad("Forbidden", 403);
+	const rows = await c.env.DB.prepare(
+		"SELECT email, source, created_at FROM waitlist ORDER BY created_at DESC LIMIT 5000",
+	).all<{ email: string; source: string; created_at: string }>();
+	return json({ count: rows.results.length, emails: rows.results });
 });
 
 app.get("/api/download/android", async (c) => {

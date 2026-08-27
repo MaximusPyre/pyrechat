@@ -172,12 +172,12 @@ img, video { max-width: 100%; }
 }
 .streak { color: var(--pyre); font-weight: 800; }
 
-.camera { position: absolute; inset: 0; background: #000; touch-action: pan-y; }
+.camera { position: absolute; inset: 0; background: #000; touch-action: none; }
 .camera video.cam-src {
-	position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+	position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
 }
 .camera canvas.live {
-	position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1;
+	position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;
 }
 .perm-card {
 	position: absolute; inset: 0; z-index: 6;
@@ -240,9 +240,20 @@ img, video { max-width: 100%; }
 .shutter {
 	width: 76px; height: 76px; border-radius: 50%;
 	border: 5px solid #fff; background: #fff3;
-	touch-action: none;
+	touch-action: none; position: relative;
 }
 .shutter.rec { background: #e33; border-color: #e33; transform: scale(0.86); }
+.shutter.rec::after {
+	content: "";
+	position: absolute; inset: -10px;
+	border-radius: 50%;
+	border: 3px solid #e33;
+	animation: rec-ring 1s linear infinite;
+}
+@keyframes rec-ring {
+	from { transform: scale(0.92); opacity: 1; }
+	to { transform: scale(1.12); opacity: 0.15; }
+}
 .lens-row {
 	display: flex; gap: 6px; overflow-x: auto; justify-content: center;
 	padding: 0 2px; scrollbar-width: none;
@@ -277,6 +288,10 @@ img, video { max-width: 100%; }
 .tool {
 	width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
 	background: #0008; display: grid; place-items: center; border: 1px solid #fff2;
+}
+.tool.on { background: var(--pyre); border-color: var(--pyre); }
+.camera.demo .cam-dock {
+	bottom: calc(var(--safe-bot) + 168px);
 }
 
 .editor { position: absolute; inset: 0; background: #000; z-index: 4000; }
@@ -987,4 +1002,74 @@ a.primary, a.get-app-auth {
 }
 @media (min-width: 1200px) {
 	.desk-spot { display: block; }
+}
+
+.guest { position: fixed; inset: 0; background: #000; z-index: 1; }
+.guest-cam { position: absolute; inset: 0; }
+.guest-chrome { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
+.guest-top, .guest-cta { pointer-events: auto; }
+.guest-top {
+	position: absolute; top: 0; left: 0; right: 0;
+	padding: calc(10px + var(--safe-top)) 14px 8px;
+	display: flex; justify-content: space-between; align-items: center;
+}
+.guest-brand {
+	display: flex; align-items: center; gap: 8px;
+	font-weight: 800; letter-spacing: -0.03em; color: #fff;
+	text-shadow: 0 1px 8px #000;
+}
+.guest-login {
+	height: 34px; padding: 0 14px; border-radius: 17px;
+	background: #fff; color: #111; font-weight: 800; font-size: 13px;
+}
+.guest-cta {
+	position: absolute; left: 0; right: 0; bottom: 0;
+	padding: 12px 16px calc(14px + var(--safe-bot));
+	background: linear-gradient(to top, #000e 70%, #0000);
+	display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+}
+.guest-pitch {
+	margin: 0; color: #fff; font-weight: 700; font-size: 13px; text-align: center;
+	text-shadow: 0 1px 8px #000;
+}
+.play-btn {
+	display: grid; place-items: center;
+	height: 48px; border-radius: 14px;
+	background: #fff; color: #111;
+	font-weight: 800; font-size: 15px; text-decoration: none;
+}
+.waitlist {
+	display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center;
+}
+.waitlist .primary { width: auto; height: 44px; padding: 0 16px; }
+.waitlist-note { grid-column: 1 / -1; margin: 0; font-size: 12px; font-weight: 600; color: #ddd; }
+.waitlist-note a { color: var(--teal); }
+.waitlist.compact .field { height: 44px; }
+.legal-mark {
+	display: flex; gap: 8px; align-items: center; justify-content: center;
+	font-size: 12px; font-weight: 700; color: #bbb;
+}
+.legal-mark a { color: #eee; }
+.legal-page { overflow: auto; }
+.legal-body { padding: 0 20px 40px; max-width: 640px; line-height: 1.5; font-weight: 600; }
+.legal-body h3 { margin: 20px 0 8px; }
+.legal-body ul { padding-left: 18px; }
+
+@media (min-width: 900px) {
+	.guest { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; background: #0b0d10; }
+	.guest-cam {
+		position: relative; width: min(420px, 42vw); height: min(780px, 88vh);
+		margin: auto; border-radius: 36px; overflow: hidden;
+		border: 10px solid #1c2124; box-shadow: 0 30px 80px #0008;
+	}
+	.guest-chrome {
+		position: relative; display: flex; flex-direction: column; justify-content: center;
+		padding: 40px 36px; pointer-events: auto; background: #0b0d10;
+	}
+	.guest-top { position: static; padding: 0 0 24px; }
+	.guest-cta {
+		position: static; padding: 0; background: none; max-width: 360px;
+	}
+	.guest-pitch { text-align: left; color: var(--paper); text-shadow: none; }
+	.camera.demo .cam-dock { bottom: 16px; }
 }

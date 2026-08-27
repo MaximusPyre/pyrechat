@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { login, signup, recover, ApiError } from "../lib/api";
+import { login, signup, recover, ApiError, track } from "../lib/api";
 import type { User } from "../lib/types";
 import { SkullLogo } from "../components/Skull";
 import { AuthInstallActions, isNativeApp } from "../components/GetApp";
 import { RecoveryKeySheet } from "../components/RecoveryKey";
+import { PLAY_PRE_REG_URL } from "../lib/play";
 
 const USERNAME_RE = /^[a-zA-Z0-9._]{3,24}$/;
 const MIN_PASSWORD = 8;
@@ -173,10 +174,32 @@ export function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
 			>
 				Forgot password? Use recovery key
 			</button>
+			{!isNativeApp() && (
+				<a
+					className="play-btn"
+					href={PLAY_PRE_REG_URL}
+					target="_blank"
+					rel="noreferrer"
+					onClick={() => track("play_prereg_login")}
+				>
+					Pre-register on Google Play
+				</a>
+			)}
 			{!isNativeApp() && <AuthInstallActions />}
+			<button
+				className="link"
+				type="button"
+				onClick={() => {
+					history.pushState({}, "", "/");
+					window.dispatchEvent(new PopStateEvent("popstate"));
+				}}
+			>
+				Try the camera first
+			</button>
 			<a className="link" href="https://github.com/MaximusPyre/pyrechat" target="_blank" rel="noreferrer">
 				Source on GitHub
 			</a>
+			<a className="link" href="/privacy">Privacy</a>
 			</div>
 		</div>
 	);

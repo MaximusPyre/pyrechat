@@ -133,6 +133,10 @@ export async function recover(username: string, seed: string, password: string):
 	});
 }
 
+export async function joinWaitlist(email: string, source: string): Promise<void> {
+	await api("/api/waitlist", { method: "POST", body: JSON.stringify({ email, source }) });
+}
+
 export function track(event: string): void {
 	void api("/api/metrics", { method: "POST", body: JSON.stringify({ event }) }).catch(() => undefined);
 }
