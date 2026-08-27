@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { api } from "../lib/api";
+import { api, reloadForLiveBuild } from "../lib/api";
 
 export const APK_URL = "https://chat.pyrearms.dev/api/download/android";
 /** Bump this and android versionCode together whenever a new APK is published. */
@@ -241,6 +241,7 @@ export function AppNoticeBanner() {
 			try {
 				const r = await api<{ notice: { id: string; kind: string; body: string; url: string | null } | null }>("/api/app");
 				if (!alive || !r.notice) return;
+				if (r.notice.kind === "live") reloadForLiveBuild(r.notice.id);
 				try {
 					if (localStorage.getItem(`pyrechat.notice.${r.notice.id}`) === "1") return;
 				} catch {

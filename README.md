@@ -64,6 +64,10 @@ npm run deploy
 
 `wrangler.jsonc` already binds custom domain **chat.pyrearms.dev**. After the first successful deploy, set DNS if Cloudflare does not auto-attach the hostname.
 
+Ticket PRs from `cursor/*` auto-merge to `master`. A GitHub Action then applies D1 migrations and runs `npm run deploy`. Web and native WebView pick the new build up on the next load (HTML/`sw.js` are no-cache; hashed `/assets/*` are immutable). Native APK only for plugin/native changes.
+
+Set GitHub Actions secret **`CLOUDFLARE_API_TOKEN`** (Workers + D1 + R2 edit) so deploys run without a local `npm run deploy`.
+
 ## Native apps
 
 ```bash

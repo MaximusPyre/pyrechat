@@ -27,6 +27,14 @@ window.addEventListener("appinstalled", () => {
 
 if ("serviceWorker" in navigator && !Capacitor.isNativePlatform()) {
 	void navigator.serviceWorker.register("/sw.js");
+	if (navigator.serviceWorker.controller) {
+		let refreshing = false;
+		navigator.serviceWorker.addEventListener("controllerchange", () => {
+			if (refreshing) return;
+			refreshing = true;
+			location.reload();
+		});
+	}
 }
 
 if (Capacitor.isNativePlatform()) {

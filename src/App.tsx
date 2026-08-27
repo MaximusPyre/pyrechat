@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
-import { api, ApiError, track } from "./lib/api";
+import { api, ApiError, reloadForLiveBuild, track } from "./lib/api";
 import { openSocket } from "./lib/ws";
 import type { ChatRow, Tab, User } from "./lib/types";
 import { MUTE, TEAL } from "./lib/brand";
@@ -154,11 +154,19 @@ export default function App() {
 		const ws = openSocket("/api/ws/hub");
 		ws.onmessage = (ev) => {
 			try {
-				const m = JSON.parse(ev.data as string) as { type?: string; snapId?: string; kind?: string };
+				const m = JSON.parse(ev.data as string) as {
+					type?: string;
+					snapId?: string;
+					kind?: string;
+					payload?: { rollout?: string; ticketId?: string };
+				};
 				if (m.type === "snap" && m.snapId) setInboxSnap(m.snapId);
 				if (m.kind === "snap" && m.snapId) setInboxSnap(m.snapId);
 				if (m.type === "chat" || m.type === "message") setInboxTick((n) => n + 1);
 				if (m.type === "notification" && (m.kind === "ticket" || m.kind === "app_update")) setInboxTick((n) => n + 1);
+				if (m.type === "notification" && m.kind === "app_update" && m.payload?.rollout !== "apk") {
+					reloadForLiveBuild(m.payload?.ticketId || "live");
+				}
 			} catch {
 				/* ignore */
 			}

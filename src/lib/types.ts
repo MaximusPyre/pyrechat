@@ -57,3 +57,26 @@ export type ChatRow = {
 };
 
 export type Tab = "inbox" | "capture" | "feed" | "you";
+
+export type TicketAttachment = {
+	id: string;
+	name: string;
+	contentType: string;
+	size: number;
+	url: string;
+	image: boolean;
+};
+
+export type Ticket = {
+	id: string;
+	kind: "bug" | "feature";
+	title: string;
+	body: string;
+	status: "queued" | "working" | "shipped" | "skipped" | "failed";
+	agentUrl: string | null;
+	prUrl: string | null;
+	note: string | null;
+	createdAt: string;
+	username?: string;
+	attachments?: TicketAttachment[];
+};

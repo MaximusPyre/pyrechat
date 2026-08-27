@@ -1,4 +1,4 @@
-const ASSET_CACHE = "pyrechat-assets-v2";
+const ASSET_CACHE = "pyrechat-assets-v3";
 
 self.addEventListener("install", (event) => {
 	event.waitUntil(self.skipWaiting());

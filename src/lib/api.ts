@@ -46,6 +46,28 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 	}
 }
 
+export async function uploadTicketFile(file: File): Promise<{ id: string; name: string; url: string; image: boolean }> {
+	return api("/api/tickets/attachments", {
+		method: "POST",
+		headers: {
+			"Content-Type": file.type || "application/octet-stream",
+			"X-Filename": file.name,
+		},
+		body: file,
+	});
+}
+
+export function reloadForLiveBuild(id: string): void {
+	const key = `pyrechat.reloaded.${id}`;
+	try {
+		if (localStorage.getItem(key) === "1") return;
+		localStorage.setItem(key, "1");
+	} catch {
+		return;
+	}
+	location.reload();
+}
+
 export async function uploadMedia(blob: Blob): Promise<{ key: string; url: string }> {
 	const type = blob.type || "image/jpeg";
 	const res = await fetch(`${apiOrigin()}/api/media`, {

@@ -89,6 +89,10 @@ export function Icon({
 			return <svg {...p}><path d="M3 10h18M5 10h5v4a2 2 0 01-2 2H7a2 2 0 01-2-2v-4zm9 0h5v4a2 2 0 01-2 2h-1a2 2 0 01-2-2v-4z" /></svg>;
 		case "ember":
 			return <svg {...p}><circle cx="12" cy="12" r="3" /><path d="M12 4v2M12 18v2M4 12h2M18 12h2M6.3 6.3l1.4 1.4M16.3 16.3l1.4 1.4M17.7 6.3l-1.4 1.4M7.7 16.3l-1.4 1.4" /></svg>;
+		case "image":
+			return <svg {...p}><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8.5" cy="10" r="1.5" /><path d="M21 16l-5-5-4 4-2-2-5 5" /></svg>;
+		case "clip":
+			return <svg {...p}><path d="M21.4 11.6l-9.2 9.2a6 6 0 01-8.5-8.5l9.2-9.2a4 4 0 015.7 5.7l-9.2 9.1a2 2 0 01-2.8-2.8l8.5-8.5" /></svg>;
 		case "mem":
 			return <svg {...p}><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8.5" cy="10" r="1.5" /><path d="M21 16l-5-5-4 4-2-2-5 5" /></svg>;
 		case "heart":

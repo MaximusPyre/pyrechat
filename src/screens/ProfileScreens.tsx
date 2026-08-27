@@ -258,7 +258,7 @@ export function SettingsScreen({
 					<div className="card">
 						<h3>Beta tickets</h3>
 						<p className="muted" style={{ margin: "0 0 10px", fontWeight: 600, lineHeight: 1.45 }}>
-							Bugs and features hit a webhook that runs the beta builder automation. It opens PRs. Nothing auto-merges.
+							Bugs and features hit a webhook that runs the beta builder. Viable PRs auto-merge and deploy to chat.pyrearms.dev. The app updates on the next load.
 						</p>
 						<button className="pill" onClick={onTickets}>Open tickets</button>
 					</div>

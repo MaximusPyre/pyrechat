@@ -323,6 +323,34 @@ img, video { max-width: 100%; }
 	background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px;
 }
 .card h3 { margin: 0 0 8px; font-size: 14px; color: var(--mute); }
+.ticket-attach-row {
+	display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+	margin: 4px 0 10px;
+}
+.ticket-files {
+	display: flex; flex-wrap: wrap; gap: 8px;
+	margin: 8px 0 12px;
+}
+.ticket-file {
+	position: relative;
+	width: 76px; height: 76px;
+	border-radius: 10px; overflow: hidden;
+	background: var(--row); border: 1px solid var(--line);
+	display: flex; align-items: center; justify-content: center;
+	text-decoration: none;
+}
+.ticket-file img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ticket-file-doc { padding: 8px; }
+.ticket-file-name {
+	font-size: 10px; font-weight: 800; color: var(--paper);
+	text-align: center; line-height: 1.25;
+	word-break: break-word; max-height: 100%; overflow: hidden;
+}
+.ticket-file-x {
+	position: absolute; top: 4px; right: 4px;
+	width: 20px; height: 20px; border-radius: 50%;
+	background: #000c; color: #fff; font-weight: 800; line-height: 18px;
+}
 .select {
 	width: 100%; background: var(--row); color: var(--paper); border: 0; height: 40px; border-radius: 10px; padding: 0 10px; font-weight: 700;
 }

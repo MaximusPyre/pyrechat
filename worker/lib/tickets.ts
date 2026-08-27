@@ -6,6 +6,26 @@ export type TicketKind = "bug" | "feature";
 export type TicketStatus = "queued" | "working" | "shipped" | "skipped" | "failed";
 export type TicketRollout = "none" | "live" | "apk";
 
+export type AttachmentRow = {
+	id: string;
+	ticket_id: string | null;
+	user_id: string;
+	media_key: string;
+	filename: string;
+	content_type: string;
+	byte_size: number;
+	created_at: string;
+};
+
+export type PublicAttachment = {
+	id: string;
+	name: string;
+	contentType: string;
+	size: number;
+	url: string;
+	image: boolean;
+};
+
 export type TicketRow = {
 	id: string;
 	user_id: string;
@@ -34,8 +54,48 @@ export type TicketResultBody = {
 const RESULT_STATUSES = new Set<TicketStatus>(["working", "shipped", "skipped", "failed"]);
 const APK_URL = "https://chat.pyrearms.dev/api/download/android";
 const PR_URL_RE = /^https:\/\/github\.com\/MaximusPyre\/pyrechat(?:\/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*)?$/i;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+export const TICKET_MAX_FILES = 5;
+const TICKET_TYPES = new Set([
+	"image/jpeg",
+	"image/jpg",
+	"image/png",
+	"image/gif",
+	"image/webp",
+	"image/heic",
+	"image/heif",
+	"application/pdf",
+	"text/plain",
+	"text/csv",
+	"application/json",
+	"application/zip",
+	"application/x-zip-compressed",
+	"video/mp4",
+	"video/webm",
+	"audio/mpeg",
+	"audio/webm",
+	"audio/mp4",
+]);
+const TICKET_EXT: Record<string, string> = {
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	png: "image/png",
+	gif: "image/gif",
+	webp: "image/webp",
+	heic: "image/heic",
+	heif: "image/heif",
+	pdf: "application/pdf",
+	txt: "text/plain",
+	csv: "text/csv",
+	json: "application/json",
+	zip: "application/zip",
+	mp4: "video/mp4",
+	webm: "video/webm",
+	mp3: "audio/mpeg",
+	m4a: "audio/mp4",
+};
 
-export function publicTicket(row: TicketRow) {
+export function publicTicket(row: TicketRow, attachments: AttachmentRow[] = []) {
 	return {
 		id: row.id,
 		kind: row.kind,
@@ -48,7 +108,100 @@ export function publicTicket(row: TicketRow) {
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 		username: row.username || undefined,
+		attachments: attachments.map(publicAttachment),
 	};
+}
+
+export function sanitizeTicketFilename(raw: string): string {
+	const base = raw.replace(/\\/g, "/").split("/").pop() || "attachment";
+	return base.replace(/[^\w.\- ()[\]]+/g, "_").slice(0, 120) || "attachment";
+}
+
+export function ticketFileType(header: string, filename: string): string | null {
+	const ct = (header || "").split(";")[0].trim().toLowerCase();
+	if (TICKET_TYPES.has(ct)) return ct === "image/jpg" ? "image/jpeg" : ct;
+	const m = filename.toLowerCase().match(/\.([a-z0-9]+)$/);
+	return (m && TICKET_EXT[m[1]]) || null;
+}
+
+export async function serveTicketAttachment(env: Env, att: AttachmentRow): Promise<Response> {
+	const obj = await env.MEDIA.get(att.media_key);
+	if (!obj) return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+	const headers = new Headers();
+	headers.set("Content-Type", att.content_type || obj.httpMetadata?.contentType || "application/octet-stream");
+	headers.set("Cache-Control", "private, max-age=3600");
+	headers.set("X-Content-Type-Options", "nosniff");
+	headers.set("Content-Disposition", `inline; filename="${sanitizeTicketFilename(att.filename)}"`);
+	return new Response(obj.body, { headers });
+}
+
+export { MAX_FILE_BYTES };
+
+export function publicAttachment(a: AttachmentRow): PublicAttachment {
+	return {
+		id: a.id,
+		name: a.filename,
+		contentType: a.content_type,
+		size: a.byte_size,
+		url: `/api/tickets/files/${a.id}`,
+		image: a.content_type.startsWith("image/"),
+	};
+}
+
+export function ticketFileExt(ct: string, filename: string): string {
+	const m = filename.toLowerCase().match(/\.([a-z0-9]+)$/);
+	if (m && TICKET_EXT[m[1]]) return m[1] === "jpeg" ? "jpg" : m[1];
+	if (ct === "image/jpeg") return "jpg";
+	if (ct === "text/csv") return "csv";
+	if (ct === "application/json") return "json";
+	if (ct === "image/heic") return "heic";
+	if (ct === "image/heif") return "heif";
+	if (ct === "application/pdf") return "pdf";
+	if (ct === "text/plain") return "txt";
+	if (ct.includes("zip")) return "zip";
+	if (ct.startsWith("audio/mpeg")) return "mp3";
+	if (ct.includes("mp4")) return "mp4";
+	if (ct.includes("webm")) return "webm";
+	return "bin";
+}
+
+export async function claimTicketAttachments(
+	env: Env,
+	userId: string,
+	ticketId: string,
+	ids: string[],
+): Promise<AttachmentRow[]> {
+	const claimed: AttachmentRow[] = [];
+	for (const raw of ids.slice(0, TICKET_MAX_FILES)) {
+		if (!/^[0-9a-f-]{36}$/i.test(raw)) continue;
+		const att = await env.DB.prepare(
+			"SELECT * FROM ticket_attachments WHERE id = ? AND user_id = ? AND ticket_id IS NULL",
+		)
+			.bind(raw, userId)
+			.first<AttachmentRow>();
+		if (!att) continue;
+		await env.DB.prepare("UPDATE ticket_attachments SET ticket_id = ? WHERE id = ?").bind(ticketId, att.id).run();
+		claimed.push({ ...att, ticket_id: ticketId });
+	}
+	return claimed;
+}
+
+export async function attachmentsFor(env: Env, ticketIds: string[]): Promise<Map<string, AttachmentRow[]>> {
+	const map = new Map<string, AttachmentRow[]>();
+	if (ticketIds.length === 0) return map;
+	const placeholders = ticketIds.map(() => "?").join(",");
+	const rows = await env.DB.prepare(
+		`SELECT * FROM ticket_attachments WHERE ticket_id IN (${placeholders}) ORDER BY created_at`,
+	)
+		.bind(...ticketIds)
+		.all<AttachmentRow>();
+	for (const row of rows.results || []) {
+		const key = row.ticket_id || "";
+		const list = map.get(key) || [];
+		list.push(row);
+		map.set(key, list);
+	}
+	return map;
 }
 
 function webhookUrl(env: Env): string {
@@ -90,6 +243,12 @@ export function bearerToken(request: Request): string {
 	return raw.replace(/^bearer\s+/i, "").trim();
 }
 
+export function verifyTicketBotBearer(env: Env, given: string): boolean {
+	const expected = envText(env, "TICKET_WEBHOOK_TOKEN").replace(/^bearer\s+/i, "").trim();
+	if (!expected || !given) return false;
+	return timingSafeEqual(given, expected);
+}
+
 function cleanNote(raw: string | undefined): string {
 	return (raw || "")
 		.replace(/[\u0000-\u001f\u007f]/g, " ")
@@ -119,13 +278,24 @@ export async function dispatchTicketWebhook(env: Env, ticket: TicketRow): Promis
 	if (auth) headers.set("Authorization", auth);
 	const origin = originUrl(env);
 	const callbackToken = await ticketCallbackToken(env, ticket.id);
+	const attMap = await attachmentsFor(env, [ticket.id]);
+	const attachments = (attMap.get(ticket.id) || []).map((a) => ({
+		...publicAttachment(a),
+		url: `${origin}/api/internal/tickets/files/${a.id}`,
+	}));
 	const res = await fetch(url, {
 		method: "POST",
 		headers,
 		body: JSON.stringify({
 			event: "pyrechat.ticket",
-			ticket: publicTicket(ticket),
+			ticket: { ...publicTicket(ticket, attMap.get(ticket.id) || []), attachments },
 			repo: envText(env, "CURSOR_REPO") || "https://github.com/MaximusPyre/pyrechat",
+			ship: {
+				autoMerge: true,
+				rollout: "live",
+				markPrReady: true,
+				note: "Open a PR on MaximusPyre/pyrechat from a cursor/* branch. GitHub auto-merges it to master and Cloudflare deploys immediately. Web and native WebView pick it up on next load. Set rollout apk only for native/plugin changes.",
+			},
 			callback: {
 				url: `${origin}/api/internal/tickets/result`,
 				ticketId: ticket.id,
@@ -161,7 +331,7 @@ export async function applyTicketResult(
 	if (status !== "working" && note.length < 4) return { error: "note is required", status: 400 };
 	const prUrl = cleanPrUrl(body.prUrl);
 	if (body.prUrl && !prUrl) return { error: "prUrl must be a MaximusPyre/pyrechat GitHub link", status: 400 };
-	const rolloutRaw = (body.rollout || "none").trim().toLowerCase();
+	const rolloutRaw = (body.rollout || (status === "shipped" ? "live" : "none")).trim().toLowerCase();
 	const rollout: TicketRollout =
 		rolloutRaw === "live" || rolloutRaw === "apk" || rolloutRaw === "none" ? rolloutRaw : "none";
 	if (rollout !== "none" && status !== "shipped") return { error: "rollout only on shipped tickets", status: 400 };

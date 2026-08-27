@@ -39,11 +39,21 @@ import { isBetaOpen, isEarlyCohort } from "./lib/env.js";
 import {
 	androidRelease,
 	applyTicketResult,
+	attachmentsFor,
 	bearerToken,
+	claimTicketAttachments,
 	dispatchTicketWebhook,
 	latestAppNotice,
+	MAX_FILE_BYTES,
 	publicTicket,
+	sanitizeTicketFilename,
+	serveTicketAttachment,
+	TICKET_MAX_FILES,
+	ticketFileExt,
+	ticketFileType,
+	verifyTicketBotBearer,
 	verifyTicketCallbackToken,
+	type AttachmentRow,
 	type TicketKind,
 	type TicketRow,
 } from "./lib/tickets.js";
@@ -70,7 +80,7 @@ app.use(
 	cors({
 		origin: (origin) => corsOrigin(origin) ?? "",
 		credentials: true,
-		allowHeaders: ["Content-Type", "Authorization"],
+		allowHeaders: ["Content-Type", "Authorization", "X-Filename"],
 		allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 	}),
 );
@@ -1560,14 +1570,79 @@ app.get("/api/tickets", async (c) => {
 			)
 				.bind(me.id)
 				.all<TicketRow>();
-	return json({ tickets: rows.results.map(publicTicket) });
+	const list = rows.results || [];
+	const attMap = await attachmentsFor(
+		c.env,
+		list.map((r) => r.id),
+	);
+	return json({ tickets: list.map((r) => publicTicket(r, attMap.get(r.id) || [])) });
+});
+
+app.post("/api/tickets/attachments", async (c) => {
+	if (!isBetaOpen(c.env)) return bad("Beta tickets are closed", 404);
+	if (await rateLimited(c.req.raw, "ticket-file", 30, 3600)) return bad("Too many uploads right now", 429);
+	const me = c.get("user");
+	const filename = sanitizeTicketFilename(c.req.header("x-filename") || c.req.query("filename") || "attachment");
+	const ct = ticketFileType(c.req.header("content-type") || "", filename);
+	if (!ct) return bad("That file type is not allowed", 415);
+	const pending = await c.env.DB.prepare(
+		"SELECT COUNT(*) AS n FROM ticket_attachments WHERE user_id = ? AND ticket_id IS NULL",
+	)
+		.bind(me.id)
+		.first<{ n: number }>();
+	if (Number(pending?.n || 0) >= TICKET_MAX_FILES) return bad(`At most ${TICKET_MAX_FILES} files per ticket`);
+	const buf = await c.req.arrayBuffer();
+	if (!buf.byteLength) return bad("Empty file");
+	if (buf.byteLength > MAX_FILE_BYTES) return bad("File too large (10 MB max)", 413);
+	const id = crypto.randomUUID();
+	const key = `tickets/${me.id}/${id}.${ticketFileExt(ct, filename)}`;
+	await c.env.MEDIA.put(key, buf, { httpMetadata: { contentType: ct } });
+	const now = nowIso();
+	await c.env.DB.prepare(
+		`INSERT INTO ticket_attachments (id, ticket_id, user_id, media_key, filename, content_type, byte_size, created_at)
+     VALUES (?, NULL, ?, ?, ?, ?, ?, ?)`,
+	)
+		.bind(id, me.id, key, filename, ct, buf.byteLength, now)
+		.run();
+	return json({
+		id,
+		name: filename,
+		contentType: ct,
+		size: buf.byteLength,
+		url: `/api/tickets/files/${id}`,
+		image: ct.startsWith("image/"),
+	});
+});
+
+app.get("/api/tickets/files/:id", async (c) => {
+	const me = c.get("user");
+	const id = c.req.param("id");
+	const att = await c.env.DB.prepare("SELECT * FROM ticket_attachments WHERE id = ?")
+		.bind(id)
+		.first<AttachmentRow>();
+	if (!att) return bad("Not found", 404);
+	if (att.user_id !== me.id && !isFounderUsername(me.username)) return bad("Forbidden", 403);
+	return serveTicketAttachment(c.env, att);
+});
+
+app.get("/api/internal/tickets/files/:id", async (c) => {
+	const id = c.req.param("id");
+	const att = await c.env.DB.prepare("SELECT * FROM ticket_attachments WHERE id = ?")
+		.bind(id)
+		.first<AttachmentRow>();
+	if (!att) return bad("Not found", 404);
+	const token = bearerToken(c.req.raw);
+	const bot = verifyTicketBotBearer(c.env, token);
+	const callback = att.ticket_id ? await verifyTicketCallbackToken(c.env, att.ticket_id, token) : false;
+	if (!bot && !callback) return bad("Forbidden", 403);
+	return serveTicketAttachment(c.env, att);
 });
 
 app.post("/api/tickets", async (c) => {
 	if (!isBetaOpen(c.env)) return bad("Beta tickets are closed", 404);
 	if (await rateLimited(c.req.raw, "ticket", 12, 3600)) return bad("Too many tickets right now", 429);
 	const me = c.get("user");
-	let body: { kind?: string; title?: string; body?: string };
+	let body: { kind?: string; title?: string; body?: string; attachmentIds?: string[] };
 	try {
 		body = await c.req.json();
 	} catch {
@@ -1593,11 +1668,17 @@ app.post("/api/tickets", async (c) => {
 	)
 		.bind(id, me.id, kind, title, text, now, now)
 		.run();
+	const attachments = await claimTicketAttachments(
+		c.env,
+		me.id,
+		id,
+		Array.isArray(body.attachmentIds) ? body.attachmentIds : [],
+	);
 	const row = await c.env.DB.prepare("SELECT t.*, u.username FROM tickets t JOIN users u ON u.id = t.user_id WHERE t.id = ?")
 		.bind(id)
 		.first<TicketRow>();
 	if (row) c.executionCtx.waitUntil(dispatchTicketWebhook(c.env, row));
-	return json({ ticket: publicTicket(row!) });
+	return json({ ticket: publicTicket(row!, attachments) });
 });
 
 app.post("/api/internal/tickets/result", async (c) => {
