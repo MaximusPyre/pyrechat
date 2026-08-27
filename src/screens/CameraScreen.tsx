@@ -3,21 +3,14 @@ import { Camera } from "@capacitor/camera";
 import { Capacitor } from "@capacitor/core";
 import { api, uploadMedia } from "../lib/api";
 import { EMBER, TEAL } from "../lib/brand";
-import {
-	detectFace,
-	drawCaptureFrame,
-	getFaceLandmarker,
-	GRADES,
-	landmarksToPts,
-	LENSES,
-	smoothPts,
-	type GradeId,
-	type LensId,
-	type Pt,
-} from "../lib/faceTrack";
+import { drawCaptureFrame, drawVideoFrame, GRADES, LENSES, type GradeId, type LensId, type Pt } from "../lib/lenses";
+import { PLAY_PRE_REG_URL } from "../lib/play";
 import type { Friend } from "../lib/types";
+import { FlameLogo } from "../components/Flame";
 import { Icon } from "../components/Icon";
 import { SkullmojiAvatar } from "../components/Skull";
+
+const LIVE_MAX = 720;
 
 const STICKERS = ["🔥", "☠", "💀", "🧡", "⚡", "😈", "🖤", "✨", "😂", "💋"];
 const HOLD_MS = 220;
@@ -40,6 +33,16 @@ function widenFov(stream: MediaStream): void {
 	if (typeof caps.zoom?.min === "number") {
 		void track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] } as unknown as MediaTrackConstraints);
 	}
+}
+
+function sizeOverlay(canvas: HTMLCanvasElement, vw: number, vh: number, max = LIVE_MAX): boolean {
+	const scale = Math.min(1, max / Math.max(vw, vh));
+	const w = Math.max(2, Math.round((vw * scale) / 2) * 2);
+	const h = Math.max(2, Math.round((vh * scale) / 2) * 2);
+	if (canvas.width === w && canvas.height === h) return false;
+	canvas.width = w;
+	canvas.height = h;
+	return true;
 }
 
 function recMime(): string | undefined {
@@ -108,7 +111,7 @@ export function CameraScreen({
 	const shutterArmed = useRef(false);
 	const [facing, setFacing] = useState<"user" | "environment">("user");
 	const [grade, setGrade] = useState<GradeId>("none");
-	const [lens, setLens] = useState<LensId>(demo ? "ember" : "none");
+	const [lens, setLens] = useState<LensId>("none");
 	const [camState, setCamState] = useState<CamState>("off");
 	const [painted, setPainted] = useState(false);
 	const [recording, setRecording] = useState(false);
@@ -130,6 +133,7 @@ export function CameraScreen({
 	const lensRef = useRef(lens);
 	const camGen = useRef(0);
 	const paintedRef = useRef(false);
+	const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
 	const lastTap = useRef(0);
 	const pinchStart = useRef(0);
 	const zoomRef = useRef(1);
@@ -151,8 +155,9 @@ export function CameraScreen({
 			const stream = await navigator.mediaDevices.getUserMedia({
 				video: {
 					facingMode: { ideal: facing },
-					width: { ideal: 1280 },
-					height: { ideal: 1920 },
+					width: { ideal: 720 },
+					height: { ideal: 1280 },
+					frameRate: { ideal: 30, max: 30 },
 				},
 			});
 			widenFov(stream);
@@ -172,7 +177,6 @@ export function CameraScreen({
 				return;
 			}
 			setCamState("live");
-			void getFaceLandmarker();
 		} catch (e) {
 			const name = e instanceof DOMException ? e.name : "";
 			setCamState(name === "NotFoundError" ? "missing" : "denied");
@@ -191,41 +195,56 @@ export function CameraScreen({
 	}, [startCam, capture, active]);
 
 	useEffect(() => {
-		if (capture || camState !== "live") return;
+		if (lens === "none" || capture || camState !== "live") {
+			ctxRef.current = null;
+			paintedRef.current = false;
+			setPainted(false);
+			return;
+		}
 		let id = 0;
+		let cancelled = false;
 		let prev: Pt[] | null = null;
-		let last = -1;
-		const loop = (now: number) => {
+		let tick = 0;
+		void import("../lib/faceTrack").then(async (ft) => {
+			if (cancelled) return;
+			await ft.getFaceLandmarker();
+			if (cancelled) return;
+			const loop = (now: number) => {
+				if (cancelled) return;
+				id = requestAnimationFrame(loop);
+				const video = videoRef.current;
+				const canvas = liveRef.current;
+				if (!video || !canvas || video.readyState < 2 || !video.videoWidth) return;
+				if (sizeOverlay(canvas, video.videoWidth, video.videoHeight)) ctxRef.current = null;
+				let ctx = ctxRef.current;
+				if (!ctx) {
+					ctx = canvas.getContext("2d", { alpha: false });
+					ctxRef.current = ctx;
+				}
+				if (!ctx) return;
+				const mirror = facingRef.current === "user";
+				tick += 1;
+				if (tick % 2 === 0) {
+					const next = ft.landmarksToPts(ft.detectFace(video, now), mirror);
+					prev = next ? ft.smoothPts(prev, next) : null;
+				}
+				drawCaptureFrame(ctx, video, prev, {
+					mirror,
+					grade: gradeRef.current,
+					lens: lensRef.current,
+				});
+				if (!paintedRef.current) {
+					paintedRef.current = true;
+					setPainted(true);
+				}
+			};
 			id = requestAnimationFrame(loop);
-			const video = videoRef.current;
-			const canvas = liveRef.current;
-			if (!video || !canvas || video.readyState < 2) return;
-			if (video.videoWidth && (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight)) {
-				canvas.width = video.videoWidth;
-				canvas.height = video.videoHeight;
-			}
-			if (!canvas.width) return;
-			const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
-			if (!ctx) return;
-			const mirror = facingRef.current === "user";
-			if (now !== last) {
-				last = now;
-				const next = landmarksToPts(detectFace(video, now), mirror);
-				prev = next ? smoothPts(prev, next) : null;
-			}
-			drawCaptureFrame(ctx, video, prev, {
-				mirror,
-				grade: gradeRef.current,
-				lens: lensRef.current,
-			});
-			if (!paintedRef.current) {
-				paintedRef.current = true;
-				setPainted(true);
-			}
+		}).catch(() => undefined);
+		return () => {
+			cancelled = true;
+			cancelAnimationFrame(id);
 		};
-		id = requestAnimationFrame(loop);
-		return () => cancelAnimationFrame(id);
-	}, [capture, camState]);
+	}, [capture, camState, lens]);
 
 	useEffect(() => {
 		const canvas = drawRef.current;
@@ -300,11 +319,26 @@ export function CameraScreen({
 		return Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
 	}
 
+	function composeShot(): HTMLCanvasElement | null {
+		const video = videoRef.current;
+		const live = liveRef.current;
+		if (lensRef.current !== "none" && live?.width) return live;
+		if (!video?.videoWidth) return null;
+		const off = document.createElement("canvas");
+		const scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
+		off.width = Math.max(2, Math.round(video.videoWidth * scale));
+		off.height = Math.max(2, Math.round(video.videoHeight * scale));
+		const ctx = off.getContext("2d", { alpha: false });
+		if (!ctx) return null;
+		drawVideoFrame(ctx, video, { mirror: facingRef.current === "user", grade: gradeRef.current });
+		return off;
+	}
+
 	async function snapPhoto() {
-		const canvas = liveRef.current;
-		if (!canvas?.width) return;
+		const src = composeShot();
+		if (!src) return;
 		buzz(18);
-		const shot = await canvasToJpeg(canvas);
+		const shot = await canvasToJpeg(src);
 		if (!shot) return;
 		setHasInk(false);
 		setPen(false);
@@ -312,13 +346,15 @@ export function CameraScreen({
 	}
 
 	async function startRec() {
-		const canvas = liveRef.current;
 		const cam = streamRef.current;
-		if (!canvas?.width || !cam || recRef.current) return;
+		if (!cam || recRef.current) return;
 		await ensureMic();
 		buzz(20);
-		const drawn = canvas.captureStream(30);
-		const mixed = new MediaStream([...drawn.getVideoTracks(), ...cam.getAudioTracks()]);
+		const live = liveRef.current;
+		const lensOn = lensRef.current !== "none" && Boolean(live?.width);
+		const overlay = lensOn && live ? live.captureStream(24) : null;
+		const videoTracks = overlay ? overlay.getVideoTracks() : cam.getVideoTracks();
+		const mixed = new MediaStream([...videoTracks, ...cam.getAudioTracks()]);
 		chunksRef.current = [];
 		const mime = recMime();
 		const rec = new MediaRecorder(mixed, mime ? { mimeType: mime } : undefined);
@@ -326,7 +362,7 @@ export function CameraScreen({
 			if (e.data.size) chunksRef.current.push(e.data);
 		};
 		rec.onstop = () => {
-			drawn.getVideoTracks().forEach((t) => t.stop());
+			overlay?.getVideoTracks().forEach((t) => t.stop());
 			recRef.current = null;
 			const blob = new Blob(chunksRef.current, { type: mime || "video/webm" });
 			if (!blob.size) return;
@@ -575,7 +611,7 @@ export function CameraScreen({
 
 	return (
 		<div
-			className={`camera ${demo ? "demo" : ""}`}
+			className={`camera ${demo ? "demo" : ""} ${lens !== "none" && painted ? "lensed" : ""}`}
 			onPointerDown={onViewTap}
 			onTouchStart={(e) => {
 				if (e.touches.length === 2) pinchStart.current = pinchDistance(e) / Math.max(0.01, zoomRef.current);
@@ -597,17 +633,23 @@ export function CameraScreen({
 				autoPlay
 				style={{ transform: facing === "user" ? "scaleX(-1)" : undefined }}
 			/>
-			<canvas ref={liveRef} className="live" style={{ opacity: painted ? 1 : 0 }} />
+			<canvas ref={liveRef} className="live" />
 			{blocked && (
 				<div className="perm-card">
-					<Icon name="cam" size={36} color={TEAL} />
-					<h2>{camState === "missing" ? "No camera found" : "Camera is blocked"}</h2>
+					<FlameLogo size={72} />
+					<h2>{camState === "missing" ? "Open this on your phone" : "Camera is blocked"}</h2>
 					<p>
 						{camState === "missing"
-							? "PyreChat needs a camera on this device to capture."
+							? "This computer has no camera. Capture lives on the phone — pre-register so PyreChat is ready when we launch."
 							: "Allow the camera so Capture can open. Chrome will ask again when you tap below."}
 					</p>
-					<button className="primary" onClick={() => void startCam()}>Allow camera</button>
+					{camState === "missing" ? (
+						<a className="primary" href={PLAY_PRE_REG_URL} target="_blank" rel="noreferrer">
+							Get the app
+						</a>
+					) : (
+						<button className="primary" onClick={() => void startCam()}>Allow camera</button>
+					)}
 				</div>
 			)}
 			{camState === "ask" && (

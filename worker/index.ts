@@ -4,6 +4,26 @@ import { expireContent } from "./expire.js";
 
 export { ChatRoom, UserHub };
 
+const CSP = [
+	"default-src 'self'",
+	"script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' blob: https://cdn.jsdelivr.net",
+	"worker-src 'self' blob:",
+	"connect-src 'self' blob: https: wss:",
+	"img-src 'self' data: blob: https:",
+	"media-src 'self' blob: mediastream:",
+	"style-src 'self' 'unsafe-inline'",
+	"font-src 'self' data:",
+	"frame-ancestors 'none'",
+	"base-uri 'self'",
+].join("; ");
+
+function withHtmlHeaders(res: Response): Response {
+	const headers = new Headers(res.headers);
+	headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+	headers.set("Content-Security-Policy", CSP);
+	return new Response(res.body, { status: res.status, headers });
+}
+
 export default {
 	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
@@ -16,12 +36,12 @@ export default {
 			return res;
 		}
 		if (url.pathname === "/" || url.pathname === "/index.html") {
-			const res = await env.ASSETS.fetch(request);
-			const headers = new Headers(res.headers);
-			headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
-			return new Response(res.body, { status: res.status, headers });
+			return withHtmlHeaders(await env.ASSETS.fetch(request));
 		}
-		return app.fetch(request, env, ctx);
+		const res = await app.fetch(request, env, ctx);
+		const type = (res.headers.get("Content-Type") || "").toLowerCase();
+		if (type.includes("text/html")) return withHtmlHeaders(res);
+		return res;
 	},
 	async scheduled(_controller, env, ctx) {
 		ctx.waitUntil(expireContent(env));

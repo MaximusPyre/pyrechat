@@ -177,20 +177,26 @@ img, video { max-width: 100%; }
 .camera { position: absolute; inset: 0; background: #000; touch-action: none; }
 .camera video.cam-src {
 	position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+	background: #000;
 }
 .camera canvas.live {
 	position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;
+	opacity: 0; pointer-events: none;
 }
+.camera.lensed video.cam-src { opacity: 0; }
+.camera.lensed canvas.live { opacity: 1; }
 .perm-card {
 	position: absolute; inset: 0; z-index: 6;
-	display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+	display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
 	padding: 32px 28px; text-align: center;
-	background: radial-gradient(ellipse at 50% 42%, #3a1c0c, var(--ink) 70%);
+	background:
+		radial-gradient(ellipse at 50% 38%, #fc7a1a55, transparent 42%),
+		radial-gradient(ellipse at 50% 42%, #3a1c0c, var(--ink) 70%);
 }
 .perm-card.dim { background: #000a; }
 .perm-card h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.03em; }
-.perm-card p { margin: 0 0 8px; color: var(--mute); font-weight: 600; max-width: 280px; line-height: 1.4; }
-.perm-card .primary { width: auto; padding: 0 28px; }
+.perm-card p { margin: 0 0 8px; color: var(--mute); font-weight: 600; max-width: 300px; line-height: 1.4; }
+.perm-card .primary { width: auto; min-width: 168px; padding: 0 28px; }
 .cam-top {
 	position: absolute; top: 0; left: 0; right: 0;
 	padding: calc(12px + var(--safe-top)) 16px 8px;

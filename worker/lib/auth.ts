@@ -203,7 +203,6 @@ export async function requireUser(
 		.bind(token, new Date().toISOString())
 		.first<AuthedUser>();
 	if (!row) return Response.json({ error: "Unauthorized" }, { status: 401 });
-	await env.DB.prepare("UPDATE users SET last_active = datetime('now') WHERE id = ?").bind(row.id).run();
 	return { user: row, token };
 }
 

@@ -122,18 +122,8 @@ export default function App() {
 			const r = await api<{ user: User }>("/api/me");
 			setUser(r.user);
 		} catch (e) {
-			const unauthorized = e instanceof ApiError && e.status === 401;
-			if (unauthorized) {
+			if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
 				setUser(null);
-				return;
-			}
-			try {
-				const r = await api<{ user: User }>("/api/me");
-				setUser(r.user);
-			} catch (e2) {
-				if (e2 instanceof ApiError && e2.status === 401) {
-					setUser(null);
-				}
 			}
 		}
 	}, []);

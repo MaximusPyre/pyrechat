@@ -289,7 +289,11 @@ app.use("/api/*", async (c, next) => {
 	return next();
 });
 
-app.get("/api/me", (c) => json({ user: meUser(c.get("user"), c.env) }));
+app.get("/api/me", (c) => {
+	const row = c.get("user");
+	if (!row) return bad("Unauthorized", 401);
+	return json({ user: meUser(row, c.env) });
+});
 
 app.post("/api/metrics", async (c) => {
 	if (await rateLimited(c.req.raw, "metrics", 120, 60)) return bad("Too many attempts", 429);
