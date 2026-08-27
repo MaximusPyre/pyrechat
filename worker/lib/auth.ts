@@ -131,7 +131,16 @@ export async function requireUser(
 	return { user: row, token };
 }
 
-export function publicUser(u: AuthedUser) {
+export function isFounderUsername(username: string): boolean {
+	return username.trim().toLowerCase() === "maximuspyre";
+}
+
+export function betaTicketsEnabled(env: Env): boolean {
+	const v = String((env as Env & { BETA_TICKETS?: string }).BETA_TICKETS ?? "1").toLowerCase();
+	return v !== "0" && v !== "false" && v !== "off" && v !== "closed";
+}
+
+export function publicUser(u: AuthedUser, env?: Env) {
 	return {
 		id: u.id,
 		username: u.username,
@@ -154,5 +163,7 @@ export function publicUser(u: AuthedUser) {
 		email: u.email,
 		createdAt: u.created_at,
 		lastActive: u.last_active,
+		founder: isFounderUsername(u.username),
+		betaTickets: env ? betaTicketsEnabled(env) : true,
 	};
 }

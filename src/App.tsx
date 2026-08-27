@@ -18,9 +18,11 @@ import {
 	SearchScreen,
 	SettingsScreen,
 } from "./screens/ProfileScreens";
+import { TicketsScreen } from "./screens/TicketsScreen";
 
 type Overlay =
 	| { t: "settings" }
+	| { t: "tickets" }
 	| { t: "add" }
 	| { t: "memories" }
 	| { t: "search" }
@@ -166,11 +168,15 @@ export default function App() {
 				<SettingsScreen
 					me={user}
 					onBack={() => setOverlay(null)}
+					onTickets={user.betaTickets ? () => setOverlay({ t: "tickets" }) : undefined}
 					onLoggedOut={() => {
 						setUser(null);
 						setOverlay(null);
 					}}
 				/>
+			)}
+			{overlay?.t === "tickets" && (
+				<TicketsScreen founder={user.founder} onBack={() => setOverlay({ t: "settings" })} />
 			)}
 			{overlay?.t === "add" && <AddFriendsScreen onBack={() => setOverlay(null)} />}
 			{overlay?.t === "memories" && <MemoriesScreen onBack={() => setOverlay(null)} />}

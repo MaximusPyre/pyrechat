@@ -22,6 +22,7 @@ import {
 	pairKey,
 	parseJson,
 } from "./lib/util.js";
+import { registerTicketRoutes } from "./lib/tickets.js";
 
 type Vars = { user: AuthedUser };
 
@@ -32,7 +33,7 @@ app.use(
 	cors({
 		origin: (origin) => origin || "*",
 		credentials: true,
-		allowHeaders: ["Content-Type", "Authorization"],
+		allowHeaders: ["Content-Type", "Authorization", "X-Filename"],
 		allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 	}),
 );
@@ -80,7 +81,7 @@ app.post("/api/auth/signup", async (c) => {
 	const token = await createSession(c.env, id);
 	const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first<AuthedUser>();
 	c.header("Set-Cookie", sessionCookie(token));
-	return json({ token, user: publicUser(user!) });
+	return json({ token, user: publicUser(user!, c.env) });
 });
 
 app.post("/api/auth/login", async (c) => {
@@ -93,7 +94,7 @@ app.post("/api/auth/login", async (c) => {
 	}
 	const token = await createSession(c.env, user.id);
 	c.header("Set-Cookie", sessionCookie(token));
-	return json({ token, user: publicUser(user) });
+	return json({ token, user: publicUser(user, c.env) });
 });
 
 app.post("/api/auth/logout", async (c) => {
@@ -112,6 +113,7 @@ app.use("/api/*", async (c, next) => {
 	if (c.req.path === "/api/legal-notice") return next();
 	if (c.req.path === "/api/admin/legal/takedown") return next();
 	if (c.req.path === "/api/health") return next();
+	if (c.req.path.startsWith("/api/internal/tickets")) return next();
 	if (c.req.method === "OPTIONS") return next();
 	const auth = await requireUser(c.req.raw, c.env);
 	if (auth instanceof Response) return auth;
@@ -119,7 +121,7 @@ app.use("/api/*", async (c, next) => {
 	return next();
 });
 
-app.get("/api/me", (c) => json({ user: publicUser(c.get("user")) }));
+app.get("/api/me", (c) => json({ user: publicUser(c.get("user"), c.env) }));
 
 app.patch("/api/me", async (c) => {
 	const me = c.get("user");
@@ -140,7 +142,7 @@ app.patch("/api/me", async (c) => {
 		.bind(display, bio, storyPrivacy, whoCanContact, mapMode, mapSelected, skullmoji, birthday, phone, email, me.id)
 		.run();
 	const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(me.id).first<AuthedUser>();
-	return json({ user: publicUser(user!) });
+	return json({ user: publicUser(user!, c.env) });
 });
 
 app.get("/api/users/search", async (c) => {
@@ -1108,6 +1110,8 @@ app.post("/api/admin/legal/takedown", async (c) => {
 	}
 	return json({ ok: true });
 });
+
+registerTicketRoutes(app);
 
 app.get("/api/health", (_c) =>
 	json({

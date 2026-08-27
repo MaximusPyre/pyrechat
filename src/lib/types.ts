@@ -24,6 +24,33 @@ export type User = {
 	email: string | null;
 	createdAt: string;
 	lastActive: string | null;
+	founder?: boolean;
+	betaTickets?: boolean;
+};
+
+export type TicketAttachment = {
+	id: string;
+	name: string;
+	contentType: string;
+	size: number;
+	url: string;
+	image: boolean;
+};
+
+export type Ticket = {
+	id: string;
+	kind: "bug" | "feature" | string;
+	title: string;
+	body: string;
+	status: "queued" | "working" | "shipped" | "skipped" | "failed" | string;
+	note: string | null;
+	prUrl: string | null;
+	agentUrl?: string | null;
+	rollout?: string | null;
+	createdAt: string;
+	updatedAt: string;
+	username?: string;
+	attachments: TicketAttachment[];
 };
 
 export type Friend = {

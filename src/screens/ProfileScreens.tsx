@@ -105,7 +105,17 @@ function SkullmojiEditor({ me, onSaved }: { me: User; onSaved: () => void }) {
 	);
 }
 
-export function SettingsScreen({ me, onBack, onLoggedOut }: { me: User; onBack: () => void; onLoggedOut: () => void }) {
+export function SettingsScreen({
+	me,
+	onBack,
+	onLoggedOut,
+	onTickets,
+}: {
+	me: User;
+	onBack: () => void;
+	onLoggedOut: () => void;
+	onTickets?: () => void;
+}) {
 	const [story, setStory] = useState(me.storyPrivacy);
 	const [contact, setContact] = useState(me.whoCanContact);
 	const [mapMode, setMapMode] = useState(me.mapMode);
@@ -184,6 +194,15 @@ export function SettingsScreen({ me, onBack, onLoggedOut }: { me: User; onBack: 
 					<input className="field" value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Bio" />
 				</div>
 				<button className="primary" onClick={() => void save()}>Save</button>
+				{onTickets && (
+					<div className="card">
+						<h3>Beta tickets</h3>
+						<p className="muted" style={{ margin: "0 0 10px", fontWeight: 600, lineHeight: 1.45 }}>
+							Bugs and features hit a webhook that runs the beta builder automation. Attach screenshots or files. It opens PRs. Nothing auto-merges.
+						</p>
+						<button className="pill" onClick={onTickets}>Open tickets</button>
+					</div>
+				)}
 				<div className="card">
 					<h3>Source</h3>
 					<a className="link" href="https://github.com/MaximusPyre/pyrechat" target="_blank" rel="noreferrer" style={{ marginTop: 0 }}>

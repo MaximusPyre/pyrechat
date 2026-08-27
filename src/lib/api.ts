@@ -19,6 +19,15 @@ export function setToken(token: string | null): void {
 	else localStorage.removeItem(TOKEN_KEY);
 }
 
+export class ApiError extends Error {
+	status: number;
+	constructor(message: string, status: number) {
+		super(message);
+		this.name = "ApiError";
+		this.status = status;
+	}
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 	const headers = new Headers(init.headers);
 	const token = getToken();
@@ -26,19 +35,67 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 	if (init.body && !(init.body instanceof ArrayBuffer) && !(init.body instanceof Blob) && !headers.has("Content-Type")) {
 		headers.set("Content-Type", "application/json");
 	}
-	const res = await fetch(`${apiOrigin()}${path}`, { ...init, headers, credentials: "include" });
+	let res: Response;
+	try {
+		res = await fetch(`${apiOrigin()}${path}`, { ...init, headers, credentials: "include" });
+	} catch {
+		throw new ApiError("Could not reach PyreChat. Check your connection.", 0);
+	}
 	if (!res.ok) {
-		let msg = res.statusText;
+		let msg = res.statusText || `Error ${res.status}`;
 		try {
 			const j = (await res.json()) as { error?: string };
 			if (j.error) msg = j.error;
 		} catch {
 			/* ignore */
 		}
-		throw new Error(msg);
+		throw new ApiError(msg, res.status);
 	}
 	if (res.status === 204) return undefined as T;
-	return (await res.json()) as T;
+	try {
+		return (await res.json()) as T;
+	} catch {
+		throw new ApiError("PyreChat sent a bad response", res.status);
+	}
+}
+
+export async function uploadTicketFile(file: File): Promise<{
+	id: string;
+	filename: string;
+	contentType: string;
+	size: number;
+	url: string;
+	image: boolean;
+}> {
+	const token = getToken();
+	const res = await fetch(`${apiOrigin()}/api/tickets/attachments`, {
+		method: "POST",
+		headers: {
+			"Content-Type": file.type || "application/octet-stream",
+			"X-Filename": file.name || "attachment",
+			...(token ? { Authorization: `Bearer ${token}` } : {}),
+		},
+		body: file,
+		credentials: "include",
+	});
+	if (!res.ok) {
+		let msg = "Upload failed";
+		try {
+			const j = (await res.json()) as { error?: string };
+			if (j.error) msg = j.error;
+		} catch {
+			/* ignore */
+		}
+		throw new ApiError(msg, res.status);
+	}
+	return (await res.json()) as {
+		id: string;
+		filename: string;
+		contentType: string;
+		size: number;
+		url: string;
+		image: boolean;
+	};
 }
 
 export async function uploadMedia(blob: Blob): Promise<{ key: string; url: string }> {

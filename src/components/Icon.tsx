@@ -79,6 +79,10 @@ export function Icon({
 			return <svg {...p}><circle cx="6" cy="12" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="18" cy="18" r="2" /><path d="M8 11l8-4M8 13l8 4" /></svg>;
 		case "loc":
 			return <svg {...p}><path d="M12 21s7-6.2 7-12a7 7 0 10-14 0c0 5.8 7 12 7 12z" /><circle cx="12" cy="9" r="2.2" /></svg>;
+		case "clip":
+			return <svg {...p}><path d="M21.4 11.6l-8.5 8.5a5 5 0 01-7.1-7.1l9.2-9.2a3.2 3.2 0 014.5 4.5l-9.2 9.2a1.4 1.4 0 01-2-2l8.2-8.2" /></svg>;
+		case "image":
+			return <svg {...p}><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8.5" cy="10" r="1.5" /><path d="M21 16l-5-5-4 4-2-2-5 5" /></svg>;
 		default:
 			return <svg {...p}><circle cx="12" cy="12" r="9" /></svg>;
 	}
