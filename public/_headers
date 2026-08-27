@@ -25,6 +25,9 @@
 /apple-touch-icon.png
   Cache-Control: public, max-age=86400
 
+/brand-banner.jpg
+  Cache-Control: public, max-age=86400
+
 /sw.js
   Cache-Control: no-cache
   Service-Worker-Allowed: /

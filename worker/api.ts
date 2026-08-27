@@ -133,11 +133,11 @@ app.post("/api/auth/signup", async (c) => {
 	if (exists) return bad("Username taken", 409);
 	const id = crypto.randomUUID();
 	const skullmoji = JSON.stringify({
-		color: "#c45e32",
+		color: "#fc7a1a",
 		eyes: "hollow",
 		jaw: "grin",
 		hat: "none",
-		bg: "#1c2124",
+		bg: "#1f1612",
 	});
 	const kindling = isEarlyCohort(c.env) && !isFounderUsername(username) ? 1 : 0;
 	const recoveryKey = generateRecoveryKey();

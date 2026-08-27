@@ -182,11 +182,11 @@ export type AuthedUser = {
 };
 
 const DEFAULT_SKULL = {
-	color: "#c45e32",
+	color: "#fc7a1a",
 	eyes: "hollow",
 	jaw: "grin",
 	hat: "none",
-	bg: "#1c2124",
+	bg: "#1f1612",
 };
 
 export async function requireUser(

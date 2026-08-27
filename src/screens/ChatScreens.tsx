@@ -4,7 +4,8 @@ import { chatFieldProps } from "../lib/shell";
 import type { ChatRow, User } from "../lib/types";
 import { Icon } from "../components/Icon";
 import { DisplayName } from "../components/DisplayName";
-import { SkullLogo, SkullmojiAvatar } from "../components/Skull";
+import { FlameLogo } from "../components/Flame";
+import { SkullmojiAvatar } from "../components/Skull";
 import { AccountNotices, AppNoticeBanner, GetAppCard, NativeUpdateBanner } from "../components/GetApp";
 import { openSocket } from "../lib/ws";
 import { StoryRail, useStoryRail, type Story } from "./StoriesScreen";
@@ -78,7 +79,7 @@ export function ChatListScreen({
 						<SkullmojiAvatar value={me?.skullmoji} size={36} />
 					</button>
 					<button type="button" className="web-head-logo" onClick={onHome} aria-label="PyreChat">
-						<SkullLogo size={30} orange />
+						<FlameLogo size={30} />
 					</button>
 					<button type="button" className="icon-btn ghost" onClick={onAdd} aria-label="Add friends">
 						<Icon name="person-add" size={20} />
@@ -179,7 +180,7 @@ type Msg = {
 
 type Me = { id: string; username?: string; display_name: string; skullmoji: unknown; kindling?: number | boolean };
 
-const PALETTE = ["#5b9aa3", "#c45e32", "#4d8a8e", "#8b9aa3", "#d4895c", "#7eb0b3", "#9b958c", "#c47a6a"];
+const PALETTE = ["#fc7a1a", "#ffb056", "#e85a0c", "#fbf6f0", "#c44e0e", "#ff9a3c", "#c4a48e", "#1a120e"];
 const STICKERS = ["🔥", "☠", "💀", "🧡", "⚡", "😈", "🖤", "✨", "😂", "💋"];
 
 function nameColor(id: string, isMe: boolean): string {

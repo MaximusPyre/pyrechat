@@ -2,11 +2,11 @@ import type { CSSProperties } from "react";
 import type { Skullmoji } from "../lib/types";
 
 const DEFAULT: Skullmoji = {
-	color: "#c45e32",
+	color: "#fc7a1a",
 	eyes: "hollow",
 	jaw: "grin",
 	hat: "none",
-	bg: "#1c2124",
+	bg: "#1f1612",
 };
 
 export function parseSkullmoji(raw: unknown): Skullmoji {
@@ -44,7 +44,7 @@ export function SkullmojiAvatar({
 		flexShrink: 0,
 		overflow: "hidden",
 		position: "relative",
-		boxShadow: ring || preview ? "0 0 0 2px #141618, 0 0 0 4px #4d8a8e" : undefined,
+		boxShadow: ring || preview ? "0 0 0 2px #140e0b, 0 0 0 4px #fc7a1a" : undefined,
 	};
 	const media = preview ? (
 		preview.match(/\.(webm|mp4|mov)(\?|$)/i) ? (
@@ -106,7 +106,7 @@ export function SkullmojiAvatar({
 }
 
 export function SkullLogo({ size = 72, orange = false }: { size?: number; orange?: boolean }) {
-	const stroke = orange ? "#c45e32" : "#f3eee6";
+	const stroke = orange ? "#fc7a1a" : "#fbf6f0";
 	return (
 		<svg viewBox="0 0 64 64" width={size} height={size} fill="none" stroke={stroke} strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" aria-hidden>
 			<path d="M32 8c10.5 0 20 7.6 20 20 0 5.2-1.5 9.2-4 12.6l2 10.2c.4 1.7-.9 3.4-2.7 3.8H16.7c-1.8-.4-3.1-2.1-2.7-3.8l2-10.2C13.5 37.2 12 33.2 12 28 12 15.6 21.5 8 32 8Z" />

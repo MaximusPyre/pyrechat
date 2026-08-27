@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary">#4D8A8E</color>
-    <color name="colorPrimaryDark">#141618</color>
-    <color name="colorAccent">#C45E32</color>
-    <color name="pyre_orange">#C45E32</color>
-    <color name="pyre_black">#141618</color>
+    <color name="colorPrimary">#FC7A1A</color>
+    <color name="colorPrimaryDark">#140E0B</color>
+    <color name="colorAccent">#FC7A1A</color>
+    <color name="pyre_orange">#FC7A1A</color>
+    <color name="pyre_black">#140E0B</color>
 </resources>

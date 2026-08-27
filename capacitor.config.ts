@@ -12,13 +12,13 @@ const config: CapacitorConfig = {
 	},
 	plugins: {
 		SplashScreen: {
-			backgroundColor: "#141618",
+			backgroundColor: "#140e0b",
 			launchAutoHide: true,
 			showSpinner: false,
 		},
 		StatusBar: {
 			style: "DARK",
-			backgroundColor: "#141618",
+			backgroundColor: "#140e0b",
 		},
 		Keyboard: {
 			resize: "none",
@@ -27,10 +27,10 @@ const config: CapacitorConfig = {
 		},
 	},
 	android: {
-		backgroundColor: "#141618",
+		backgroundColor: "#140e0b",
 	},
 	ios: {
-		backgroundColor: "#141618",
+		backgroundColor: "#140e0b",
 		contentInset: "automatic",
 		preferredContentMode: "mobile",
 		scheme: "PyreChat",

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { WaitlistForm } from "../components/WaitlistForm";
 import { LegalMark } from "./LegalScreens";
-import { SkullLogo } from "../components/Skull";
+import { FlameLogo } from "../components/Flame";
 import { isNativeApp } from "../components/GetApp";
 import { PLAY_PRE_REG_URL } from "../lib/play";
 import { track } from "../lib/api";
@@ -32,7 +32,7 @@ export function GuestHome({ onAuthed: _onAuthed }: { onAuthed: (user: User) => v
 			<div className="guest-chrome">
 				<div className="guest-top">
 					<div className="guest-brand">
-						<SkullLogo size={28} />
+						<FlameLogo size={28} />
 						<span>PyreChat</span>
 					</div>
 					<button className="guest-login" type="button" onClick={goLogin}>

@@ -1,4 +1,5 @@
 import { Icon } from "./Icon";
+import { INK } from "../lib/brand";
 import { SkullmojiAvatar } from "./Skull";
 import type { User } from "../lib/types";
 
@@ -21,7 +22,7 @@ export function DeskHome({ me, onCamera }: { me: User; onCamera: () => void }) {
 			</div>
 			<button type="button" className="desk-cam-card" onClick={onCamera}>
 				<span className="desk-cam-shutter" aria-hidden>
-					<Icon name="cam" size={36} color="#141618" />
+					<Icon name="cam" size={36} color={INK} />
 				</span>
 				<strong>Click the Camera to send Pyres</strong>
 				<span className="desk-cam-lenses">

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { login, signup, recover, ApiError, track } from "../lib/api";
 import type { User } from "../lib/types";
-import { SkullLogo } from "../components/Skull";
+import { FlameLogo } from "../components/Flame";
 import { AuthInstallActions, isNativeApp } from "../components/GetApp";
 import { RecoveryKeySheet } from "../components/RecoveryKey";
 import { PLAY_PRE_REG_URL } from "../lib/play";
@@ -82,7 +82,7 @@ export function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
 	return (
 		<div className="auth">
 			<div className="auth-brand">
-				<SkullLogo size={88} />
+				<FlameLogo size={88} />
 				<h1>PyreChat</h1>
 				<p className="tag">No ads in chat. Your memories stay yours. Chronological. No AI ranking. No mystery bans.</p>
 				{mode === "signup" && (

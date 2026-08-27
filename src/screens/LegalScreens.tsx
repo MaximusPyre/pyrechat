@@ -1,4 +1,4 @@
-import { SkullLogo } from "../components/Skull";
+import { FlameLogo } from "../components/Flame";
 
 export function LegalScreen({ kind }: { kind: "privacy" | "terms" }) {
 	const title = kind === "privacy" ? "Privacy" : "Terms";
@@ -53,7 +53,7 @@ function TermsCopy() {
 export function LegalMark() {
 	return (
 		<div className="legal-mark">
-			<SkullLogo size={28} />
+			<FlameLogo size={28} />
 			<a href="/privacy">Privacy</a>
 			<span>·</span>
 			<a href="/terms">Terms</a>
