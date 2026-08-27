@@ -10,6 +10,9 @@
 		A1B100000000000000000001 /* PyreChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B100000000000000000011 /* PyreChatApp.swift */; };
 		A1B100000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B100000000000000000012 /* ContentView.swift */; };
 		A1B100000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1B100000000000000000013 /* Assets.xcassets */; };
+		A1B100000000000000000004 /* PyreTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B100000000000000000014 /* PyreTheme.swift */; };
+		A1B100000000000000000005 /* PyreAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B100000000000000000015 /* PyreAPI.swift */; };
+		A1B100000000000000000006 /* PyreViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B100000000000000000016 /* PyreViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -17,6 +20,9 @@
 		A1B100000000000000000011 /* PyreChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyreChatApp.swift; sourceTree = "<group>"; };
 		A1B100000000000000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A1B100000000000000000013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1B100000000000000000014 /* PyreTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyreTheme.swift; sourceTree = "<group>"; };
+		A1B100000000000000000015 /* PyreAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyreAPI.swift; sourceTree = "<group>"; };
+		A1B100000000000000000016 /* PyreViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyreViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -43,6 +49,9 @@
 			children = (
 				A1B100000000000000000011 /* PyreChatApp.swift */,
 				A1B100000000000000000012 /* ContentView.swift */,
+				A1B100000000000000000014 /* PyreTheme.swift */,
+				A1B100000000000000000015 /* PyreAPI.swift */,
+				A1B100000000000000000016 /* PyreViews.swift */,
 				A1B100000000000000000013 /* Assets.xcassets */,
 			);
 			path = PyreChat;
@@ -127,6 +136,9 @@
 			files = (
 				A1B100000000000000000001 /* PyreChatApp.swift in Sources */,
 				A1B100000000000000000002 /* ContentView.swift in Sources */,
+				A1B100000000000000000004 /* PyreTheme.swift in Sources */,
+				A1B100000000000000000005 /* PyreAPI.swift in Sources */,
+				A1B100000000000000000006 /* PyreViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -21,6 +21,8 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -34,12 +36,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.outlined.Cameraswitch
+import androidx.compose.material.icons.outlined.FlashOn
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -51,14 +50,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.pyrearms.chat.ui.components.PyreIconCircle
+import dev.pyrearms.chat.ui.components.PyrePrimaryButton
+import dev.pyrearms.chat.ui.theme.PyreColor
 import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -82,12 +85,16 @@ fun CaptureScreen(onCaptured: (File, String, String) -> Unit) {
 	}
 
 	if (!granted) {
-		Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) {
-			Column(horizontalAlignment = Alignment.CenterHorizontally) {
-				Text("PyreChat needs the camera", color = Paper, modifier = Modifier.padding(bottom = 12.dp))
-				Button(onClick = { ask.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)) }, colors = ButtonDefaults.buttonColors(containerColor = Ember)) {
-					Text("Allow camera")
-				}
+		Box(Modifier.fillMaxSize().background(PyreColor.Ink), contentAlignment = Alignment.Center) {
+			Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+				Text("Camera access", style = MaterialTheme.typography.titleLarge, color = PyreColor.Paper)
+				Text(
+					"PyreChat needs your camera and mic to capture.",
+					style = MaterialTheme.typography.bodyMedium,
+					color = PyreColor.Mute,
+					modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
+				)
+				PyrePrimaryButton("Allow camera", onClick = { ask.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)) })
 			}
 		}
 		return
@@ -168,34 +175,50 @@ fun CaptureScreen(onCaptured: (File, String, String) -> Unit) {
 		activeRec?.stop()
 	}
 
+	val shutterScale by animateFloatAsState(
+		if (recording) 1.12f else 1f,
+		animationSpec = spring(dampingRatio = 0.55f, stiffness = 380f),
+		label = "shutter",
+	)
+
 	Box(Modifier.fillMaxSize().background(Color.Black)) {
 		AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
-		Row(
+		Box(
 			Modifier
-				.align(Alignment.TopEnd)
-				.statusBarsPadding()
-				.padding(12.dp),
+				.fillMaxSize()
+				.background(
+					Brush.verticalGradient(
+						listOf(Color.Black.copy(0.35f), Color.Transparent, Color.Black.copy(0.55f)),
+					),
+				),
+		)
+		Row(
+			Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp),
+			horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
 		) {
-			IconButton(onClick = {
+			PyreIconCircle(Icons.Outlined.FlashOn, "Flash", onClick = {
 				val next = !torch
 				camera?.cameraControl?.enableTorch(next)
 				torch = next && camera?.cameraInfo?.hasFlashUnit() == true
-			}) {
-				Icon(Icons.Filled.FlashOn, contentDescription = "Flash", tint = if (torch) Ember else Paper)
-			}
-			IconButton(onClick = {
+			}, tint = if (torch) PyreColor.EmberSoft else PyreColor.Paper, active = torch)
+			PyreIconCircle(Icons.Outlined.Cameraswitch, "Flip", onClick = {
 				facing = if (facing == CameraSelector.LENS_FACING_FRONT) CameraSelector.LENS_FACING_BACK else CameraSelector.LENS_FACING_FRONT
-			}) {
-				Icon(Icons.Filled.Cameraswitch, contentDescription = "Flip", tint = Paper)
-			}
+			})
 		}
-		Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-			Text(if (recording) "Recording" else "Tap photo · hold video", color = Paper, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+		Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+			Text(
+				if (recording) "Recording…" else "Tap · photo  Hold · video",
+				style = MaterialTheme.typography.labelMedium,
+				color = PyreColor.Paper.copy(alpha = 0.9f),
+				modifier = Modifier.padding(bottom = 16.dp),
+			)
 			Box(
 				Modifier
-					.size(78.dp)
+					.size(76.dp)
+					.scale(shutterScale)
 					.clip(CircleShape)
-					.background(if (recording) Ember else Paper)
+					.background(Color.White.copy(alpha = 0.22f))
+					.padding(5.dp)
 					.pointerInput(imageCapture, videoCapture) {
 						awaitEachGesture {
 							awaitFirstDown()
@@ -210,7 +233,15 @@ fun CaptureScreen(onCaptured: (File, String, String) -> Unit) {
 							if (started) stopVideo() else snap()
 						}
 					},
-			)
+				contentAlignment = Alignment.Center,
+			) {
+				Box(
+					Modifier
+						.fillMaxSize()
+						.clip(CircleShape)
+						.background(if (recording) PyreColor.Ember else Color.White),
+				)
+			}
 		}
 	}
 }

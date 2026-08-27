@@ -62,6 +62,12 @@ export async function bumpScore(env: Env, userId: string, by = 1): Promise<void>
 		.run();
 }
 
+export async function setSnapScore(env: Env, userId: string, score: number): Promise<void> {
+	await env.DB.prepare("UPDATE users SET snap_score = ?, last_active = ? WHERE id = ?")
+		.bind(Math.max(0, Math.floor(score)), nowIso(), userId)
+		.run();
+}
+
 export function parseJson<T>(raw: string | null | undefined, fallback: T): T {
 	if (!raw) return fallback;
 	try {

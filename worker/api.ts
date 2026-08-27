@@ -59,6 +59,16 @@ import {
 } from "./lib/tickets.js";
 import { normalizeWaitlistEmail, waitlistSource } from "./lib/waitlist.js";
 import {
+	generateVerifyCode,
+	isValidSnapUsername,
+	normalizeSnapUsername,
+	parseSnapExportText,
+	parseSpotlightUrl,
+	scrapeSpotlight,
+	spotlightContainsCode,
+	usernameFromSpotlightUrl,
+} from "./lib/snapchat.js";
+import {
 	bad,
 	bumpScore,
 	dmId,
@@ -69,6 +79,7 @@ import {
 	notify,
 	pairKey,
 	parseJson,
+	setSnapScore,
 	withCookies,
 } from "./lib/util.js";
 
@@ -279,6 +290,7 @@ app.use("/api/*", async (c, next) => {
 	if (c.req.path === "/api/admin/legal/takedown") return next();
 	if (c.req.path === "/api/health") return next();
 	if (c.req.path === "/api/download/android") return next();
+	if (c.req.path === "/api/download/ios") return next();
 	if (c.req.path === "/api/app") return next();
 	if (c.req.path === "/api/waitlist" && c.req.method === "POST") return next();
 	if (c.req.path.startsWith("/api/internal/")) return next();
@@ -376,6 +388,147 @@ app.post("/api/me/recovery-key", async (c) => {
 		.bind(await hashRecoveryKey(recoveryKey), me.id)
 		.run();
 	return json({ recoveryKey });
+});
+
+type SnapOnboardRow = {
+	user_id: string;
+	snapchat_username: string;
+	verify_code: string;
+	spotlight_url: string | null;
+	status: string;
+	snap_score_claimed: number | null;
+	verified_at: string | null;
+	imported_at: string | null;
+};
+
+function snapOnboardPublic(row: SnapOnboardRow | null) {
+	if (!row) {
+		return { status: "none", snapchatUsername: null, code: null, verified: false, imported: false, snapScoreClaimed: null };
+	}
+	return {
+		status: row.status,
+		snapchatUsername: row.snapchat_username,
+		code: row.status === "pending" ? row.verify_code : null,
+		verified: row.status === "verified" || row.status === "imported",
+		imported: row.status === "imported",
+		snapScoreClaimed: row.snap_score_claimed,
+		verifiedAt: row.verified_at,
+		importedAt: row.imported_at,
+		spotlightUrl: row.spotlight_url,
+	};
+}
+
+async function getSnapOnboard(env: Env, userId: string): Promise<SnapOnboardRow | null> {
+	return env.DB.prepare("SELECT * FROM snapchat_onboard WHERE user_id = ?").bind(userId).first<SnapOnboardRow>();
+}
+
+app.get("/api/onboard/snapchat", async (c) => {
+	const row = await getSnapOnboard(c.env, c.get("user").id);
+	return json({ onboard: snapOnboardPublic(row) });
+});
+
+app.post("/api/onboard/snapchat/start", async (c) => {
+	const me = c.get("user");
+	let body: { snapchatUsername?: string };
+	try {
+		body = await c.req.json();
+	} catch {
+		return bad("Invalid request");
+	}
+	const username = normalizeSnapUsername(body.snapchatUsername || "");
+	if (!isValidSnapUsername(username)) return bad("Enter your Snapchat username (3–32 characters)");
+	const existing = await getSnapOnboard(c.env, me.id);
+	if (existing?.status === "imported") return bad("Snapscore already imported");
+	const now = nowIso();
+	const code = existing?.verify_code || generateVerifyCode(me.id);
+	if (existing) {
+		await c.env.DB.prepare(
+			"UPDATE snapchat_onboard SET snapchat_username = ?, verify_code = ?, status = 'pending', spotlight_url = NULL, updated_at = ? WHERE user_id = ?",
+		)
+			.bind(username, code, now, me.id)
+			.run();
+	} else {
+		await c.env.DB.prepare(
+			`INSERT INTO snapchat_onboard (user_id, snapchat_username, verify_code, status, created_at, updated_at)
+       VALUES (?, ?, ?, 'pending', ?, ?)`,
+		)
+			.bind(me.id, username, code, now, now)
+			.run();
+	}
+	const row = await getSnapOnboard(c.env, me.id);
+	return json({
+		onboard: snapOnboardPublic(row),
+		instructions:
+			`Post this code in a public Snapchat Spotlight caption: ${code}. Then paste the Spotlight link here to verify.`,
+	});
+});
+
+app.post("/api/onboard/snapchat/verify", async (c) => {
+	const me = c.get("user");
+	let body: { spotlightUrl?: string };
+	try {
+		body = await c.req.json();
+	} catch {
+		return bad("Invalid request");
+	}
+	const spotlightUrl = (body.spotlightUrl || "").trim();
+	if (!spotlightUrl) return bad("Spotlight link required");
+	const row = await getSnapOnboard(c.env, me.id);
+	if (!row) return bad("Set your Snapchat username first");
+	if (row.status === "imported") return bad("Already imported");
+	const scraped = await scrapeSpotlight(spotlightUrl);
+	const blob = `${scraped.title}\n${scraped.description}`;
+	if (!spotlightContainsCode(blob, row.verify_code)) {
+		return bad("Could not find your verification code in that Spotlight caption");
+	}
+	const parsed = parseSpotlightUrl(spotlightUrl);
+	const urlUser = parsed ? usernameFromSpotlightUrl(parsed) : null;
+	const pageUser = scraped.username ? normalizeSnapUsername(scraped.username) : null;
+	const claimed = normalizeSnapUsername(row.snapchat_username);
+	const matches =
+		claimed === pageUser ||
+		claimed === urlUser ||
+		blob.toLowerCase().includes(`@${claimed}`);
+	if (!matches) {
+		return bad("Spotlight does not match the Snapchat username you gave us");
+	}
+	const now = nowIso();
+	await c.env.DB.prepare(
+		"UPDATE snapchat_onboard SET status = 'verified', spotlight_url = ?, verified_at = ?, updated_at = ? WHERE user_id = ?",
+	)
+		.bind(spotlightUrl, now, now, me.id)
+		.run();
+	const updated = await getSnapOnboard(c.env, me.id);
+	return json({ onboard: snapOnboardPublic(updated) });
+});
+
+app.post("/api/onboard/snapchat/import", async (c) => {
+	const me = c.get("user");
+	const row = await getSnapOnboard(c.env, me.id);
+	if (!row || row.status === "pending") return bad("Verify your Spotlight post first");
+	if (row.status === "imported") return bad("Snapscore already imported");
+	const text = await c.req.text();
+	if (!text.trim()) return bad("Upload ranking.json from your Snapchat export");
+	let snapScore: number;
+	try {
+		snapScore = await parseSnapExportText(text);
+	} catch (e) {
+		return bad(e instanceof Error ? e.message : "Invalid export file");
+	}
+	const now = nowIso();
+	await setSnapScore(c.env, me.id, snapScore);
+	await c.env.DB.prepare(
+		"UPDATE snapchat_onboard SET status = 'imported', snap_score_claimed = ?, imported_at = ?, updated_at = ? WHERE user_id = ?",
+	)
+		.bind(snapScore, now, now, me.id)
+		.run();
+	const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(me.id).first<AuthedUser>();
+	return json({
+		ok: true,
+		snapScore,
+		user: user ? meUser(user, c.env) : null,
+		onboard: snapOnboardPublic(await getSnapOnboard(c.env, me.id)),
+	});
 });
 
 app.get("/api/users/search", async (c) => {
@@ -1783,7 +1936,18 @@ app.get("/api/download/android", async (c) => {
 	const headers = new Headers();
 	headers.set("Content-Type", "application/vnd.android.package-archive");
 	headers.set("Content-Disposition", 'attachment; filename="pyrechat.apk"');
-	headers.set("Cache-Control", "public, max-age=300");
+	headers.set("Cache-Control", "no-store");
+	if (obj.size != null) headers.set("Content-Length", String(obj.size));
+	return new Response(obj.body, { headers });
+});
+
+app.get("/api/download/ios", async (c) => {
+	const obj = await c.env.MEDIA.get("app/pyrechat.ipa");
+	if (!obj) return bad("iOS build is not published yet", 404);
+	const headers = new Headers();
+	headers.set("Content-Type", "application/octet-stream");
+	headers.set("Content-Disposition", 'attachment; filename="pyrechat.ipa"');
+	headers.set("Cache-Control", "no-store");
 	if (obj.size != null) headers.set("Content-Length", String(obj.size));
 	return new Response(obj.body, { headers });
 });

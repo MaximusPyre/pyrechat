@@ -15,7 +15,9 @@
     "dev:setup": "wrangler d1 migrations apply pyrechat --local",
     "cap:sync": "npm run build && npx cap sync",
     "android": "cd android && ./gradlew assembleDebug",
-    "ios": "echo \"iOS compiles on GitHub Actions macos-14 (.github/workflows/ios.yml). Device/TestFlight needs an Apple Developer account.\""
+    "apk:publish": "npm run android && wrangler r2 object put pyrechat-media/app/pyrechat.apk --file android/app/build/outputs/apk/debug/app-debug.apk --content-type application/vnd.android.package-archive --remote",
+    "ios": "echo \"Build IPA on macOS: chmod +x scripts/build-ios-ipa.sh && scripts/build-ios-ipa.sh\"",
+    "ipa:publish": "scripts/build-ios-ipa.sh && wrangler r2 object put pyrechat-media/app/pyrechat.ipa --file ios/build/PyreChat.ipa --content-type application/octet-stream --remote"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",

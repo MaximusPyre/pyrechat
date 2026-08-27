@@ -110,6 +110,40 @@ class PyreClient(private val session: SessionStore) {
 		return (0 until arr.length()).map { Friend.from(arr.getJSONObject(it)) }
 	}
 
+	suspend fun quickAdd(): List<Friend> {
+		val arr = get("/api/friends/quick-add").optJSONArray("suggestions") ?: JSONArray()
+		return (0 until arr.length()).map { Friend.from(arr.getJSONObject(it)) }
+	}
+
+	suspend fun searchUsers(q: String): List<Friend> {
+		if (q.isBlank()) return emptyList()
+		val arr = get("/api/users/search?q=${java.net.URLEncoder.encode(q, "UTF-8")}").optJSONArray("users") ?: JSONArray()
+		return (0 until arr.length()).map { Friend.from(arr.getJSONObject(it)) }
+	}
+
+	suspend fun addFriend(username: String): String {
+		return post("/api/friends/add", JSONObject().put("username", username)).optString("status")
+	}
+
+	suspend fun snapOnboard(): JSONObject = get("/api/onboard/snapchat").getJSONObject("onboard")
+
+	suspend fun snapStart(username: String): JSONObject =
+		post("/api/onboard/snapchat/start", JSONObject().put("snapchatUsername", username))
+
+	suspend fun snapVerify(spotlightUrl: String): JSONObject =
+		post("/api/onboard/snapchat/verify", JSONObject().put("spotlightUrl", spotlightUrl))
+
+	suspend fun snapImport(jsonText: String): JSONObject = withContext(Dispatchers.IO) {
+		val body = jsonText.toRequestBody("application/json; charset=utf-8".toMediaType())
+		val raw = execute(
+			request("/api/onboard/snapchat/import")
+				.post(body)
+				.header("Content-Type", "application/json; charset=utf-8")
+				.build(),
+		)
+		JSONObject(raw)
+	}
+
 	suspend fun inbox(): List<InboxSnap> {
 		val arr = get("/api/inbox").optJSONArray("snaps") ?: JSONArray()
 		return (0 until arr.length()).map { InboxSnap.from(arr.getJSONObject(it)) }
@@ -131,6 +165,22 @@ class PyreClient(private val session: SessionStore) {
 				.put("recipientIds", JSONArray(recipientIds)),
 		)
 	}
+
+	suspend fun chats(): List<ChatRow> {
+		val arr = get("/api/chats").optJSONArray("chats") ?: JSONArray()
+		return (0 until arr.length()).map { ChatRow.from(arr.getJSONObject(it)) }
+	}
+
+	suspend fun messages(chatId: String): List<ChatMessage> {
+		val arr = get("/api/chats/$chatId/messages").optJSONArray("messages") ?: JSONArray()
+		return (0 until arr.length()).map { ChatMessage.from(arr.getJSONObject(it)) }
+	}
+
+	suspend fun sendMessage(chatId: String, body: String) {
+		post("/api/chats/$chatId/messages", JSONObject().put("kind", "text").put("body", body))
+	}
+
+	suspend fun friendAdds(): JSONObject = get("/api/friends/adds")
 
 	private fun saveAuth(o: JSONObject): Pair<User, String?> {
 		val token = o.optString("token")

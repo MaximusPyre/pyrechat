@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  simulator:
+  build:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -27,5 +27,23 @@ jobs:
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_IDENTITY="" \
             build
+      - name: Build unsigned device IPA (Sideloadly)
+        if: github.event_name != 'pull_request'
+        run: chmod +x scripts/build-ios-ipa.sh && scripts/build-ios-ipa.sh
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: pyrechat-ios
+          path: ios/build/PyreChat.ipa
+      - name: Publish IPA to chat.pyrearms.dev
+        if: github.event_name != 'pull_request'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler@4 r2 object put pyrechat-media/app/pyrechat.ipa \
+            --file ios/build/PyreChat.ipa \
+            --content-type application/octet-stream \
+            --remote

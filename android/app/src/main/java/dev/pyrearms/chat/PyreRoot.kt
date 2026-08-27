@@ -1,44 +1,48 @@
 package dev.pyrearms.chat
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChatBubble
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.PersonOutline
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
+import dev.pyrearms.chat.ui.components.PyreBottomNav
+import dev.pyrearms.chat.ui.components.PyreLoading
+import dev.pyrearms.chat.ui.components.PyreTabItem
+import dev.pyrearms.chat.ui.theme.PyreColor
 import java.io.File
 
-enum class Tab { Inbox, Capture, You }
+enum class Tab { Chat, Capture, Profile }
 
 sealed class Overlay {
 	data class Send(val file: File, val kind: String, val mime: String) : Overlay()
 	data class Snap(val id: String) : Overlay()
 	data class Recovery(val key: String) : Overlay()
+	data class Thread(val chat: ChatRow) : Overlay()
+	data object AddFriends : Overlay()
 }
+
+private val tabs = listOf(
+	PyreTabItem("Chat", Icons.Outlined.ChatBubbleOutline),
+	PyreTabItem("Capture", Icons.Outlined.PhotoCamera),
+	PyreTabItem("Profile", Icons.Outlined.PersonOutline),
+)
 
 @Composable
 fun PyreRoot(api: PyreClient, session: SessionStore) {
@@ -46,6 +50,7 @@ fun PyreRoot(api: PyreClient, session: SessionStore) {
 	var user by remember { mutableStateOf(session.user()) }
 	var tab by remember { mutableStateOf(Tab.Capture) }
 	var overlay by remember { mutableStateOf<Overlay?>(null) }
+	var chatRefresh by remember { mutableIntStateOf(0) }
 
 	LaunchedEffect(session.token) {
 		if (session.token == null) {
@@ -63,61 +68,40 @@ fun PyreRoot(api: PyreClient, session: SessionStore) {
 	}
 
 	when {
-		booting -> {
-			Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) {
-				CircularProgressIndicator(color = Ember)
-			}
-		}
+		booting -> PyreLoading(Modifier.fillMaxSize().background(PyreColor.Ink))
 		user == null -> AuthScreen(api) { next, recovery ->
 			user = next
 			if (!recovery.isNullOrBlank()) overlay = Overlay.Recovery(recovery)
 		}
 		else -> {
 			val me = user!!
-			Box(Modifier.fillMaxSize().background(Ink)) {
+			Box(Modifier.fillMaxSize().background(PyreColor.Ink)) {
 				Column(Modifier.fillMaxSize()) {
-					Box(Modifier.weight(1f).fillMaxWidth()) {
-						when (tab) {
-							Tab.Inbox -> InboxScreen(api, onOpen = { overlay = Overlay.Snap(it) })
+					AnimatedContent(
+						targetState = tab,
+						modifier = Modifier.weight(1f).fillMaxWidth(),
+						transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(160)) },
+						label = "tab",
+					) { current ->
+						when (current) {
+							Tab.Chat -> ChatScreen(
+								api = api,
+								meId = me.id,
+								refreshKey = chatRefresh,
+								onOpenChat = { overlay = Overlay.Thread(it) },
+								onAddFriends = { overlay = Overlay.AddFriends },
+							)
 							Tab.Capture -> CaptureScreen(
 								onCaptured = { file, kind, mime -> overlay = Overlay.Send(file, kind, mime) },
 							)
-							Tab.You -> YouScreen(me, api) { user = null }
+							Tab.Profile -> ProfileScreen(me, api) { user = null }
 						}
 					}
-					NavigationBar(
-						containerColor = Panel,
-						modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
-					) {
-						val colors = NavigationBarItemDefaults.colors(
-							selectedIconColor = Ember,
-							selectedTextColor = Ember,
-							unselectedIconColor = Mute,
-							unselectedTextColor = Mute,
-							indicatorColor = Color.Transparent,
-						)
-						NavigationBarItem(
-							selected = tab == Tab.Inbox,
-							onClick = { tab = Tab.Inbox },
-							icon = { Icon(Icons.Filled.ChatBubble, contentDescription = "Inbox") },
-							label = { Text("Inbox") },
-							colors = colors,
-						)
-						NavigationBarItem(
-							selected = tab == Tab.Capture,
-							onClick = { tab = Tab.Capture },
-							icon = { Icon(Icons.Filled.PhotoCamera, contentDescription = "Capture") },
-							label = { Text("Capture") },
-							colors = colors,
-						)
-						NavigationBarItem(
-							selected = tab == Tab.You,
-							onClick = { tab = Tab.You },
-							icon = { Icon(Icons.Filled.Person, contentDescription = "You") },
-							label = { Text("You") },
-							colors = colors,
-						)
-					}
+					PyreBottomNav(
+						items = tabs,
+						selected = tab.ordinal,
+						onSelect = { tab = Tab.entries[it] },
+					)
 				}
 				when (val sheet = overlay) {
 					is Overlay.Send -> SendSheet(
@@ -125,14 +109,26 @@ fun PyreRoot(api: PyreClient, session: SessionStore) {
 						file = sheet.file,
 						kind = sheet.kind,
 						mime = sheet.mime,
-						onClose = { overlay = null },
+						onClose = {
+							overlay = null
+							chatRefresh++
+						},
 					)
-					is Overlay.Snap -> SnapViewer(
-						api = api,
-						id = sheet.id,
-						onClose = { overlay = null },
-					)
+					is Overlay.Snap -> SnapViewer(api = api, id = sheet.id, onClose = { overlay = null })
 					is Overlay.Recovery -> RecoverySheet(sheet.key) { overlay = null }
+					is Overlay.Thread -> ChatThreadScreen(
+						api = api,
+						meId = me.id,
+						chat = sheet.chat,
+						onClose = {
+							overlay = null
+							chatRefresh++
+						},
+					)
+					Overlay.AddFriends -> AddFriendsScreen(api) {
+						overlay = null
+						chatRefresh++
+					}
 					null -> Unit
 				}
 			}
