@@ -38,4 +38,8 @@ android/capacitor-cordova-android-plugins
 ios/App/Pods
 ios/App/public
 ios/CapApp-SPM
+ios/build
+ios/DerivedData
+ios/*.xcuserstate
+ios/PyreChat.xcodeproj/xcuserdata
 *.xcuserstate

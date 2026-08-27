@@ -14,8 +14,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply pyrechat --remote",
     "dev:setup": "wrangler d1 migrations apply pyrechat --local",
     "cap:sync": "npm run build && npx cap sync",
-    "android": "npm run cap:sync && npx cap open android",
-    "ios": "npm run cap:sync && npx cap open ios"
+    "android": "cd android && ./gradlew assembleDebug",
+    "ios": "echo \"iOS compiles on GitHub Actions macos-14 (.github/workflows/ios.yml). Device/TestFlight needs an Apple Developer account.\""
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",

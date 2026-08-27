@@ -169,7 +169,7 @@ app.post("/api/auth/signup", async (c) => {
 	if (!user) return bad("Could not create account", 500);
 	c.executionCtx.waitUntil(bumpMetric(c.env, "signup"));
 	track(c.env, "signup");
-	return withCookies(json({ user: meUser(user, c.env), recoveryKey }), sessionCookie(token, c.req.raw));
+	return withCookies(json({ user: meUser(user, c.env), recoveryKey, token }), sessionCookie(token, c.req.raw));
 });
 
 app.post("/api/auth/login", async (c) => {
@@ -220,7 +220,7 @@ app.post("/api/auth/login", async (c) => {
 			recoveryKey = undefined;
 		}
 	}
-	return withCookies(json({ user: meUser(user, c.env), recoveryKey }), sessionCookie(token, c.req.raw));
+	return withCookies(json({ user: meUser(user, c.env), recoveryKey, token }), sessionCookie(token, c.req.raw));
 });
 
 app.post("/api/auth/logout", async (c) => {
@@ -270,7 +270,7 @@ app.post("/api/auth/recover", async (c) => {
 	await c.env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id).run();
 	const token = await createSession(c.env, user.id, c.req.raw);
 	const fresh = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(user.id).first<AuthedUser>();
-	return withCookies(json({ user: meUser(fresh!, c.env) }), sessionCookie(token, c.req.raw));
+	return withCookies(json({ user: meUser(fresh!, c.env), token }), sessionCookie(token, c.req.raw));
 });
 
 app.use("/api/*", async (c, next) => {

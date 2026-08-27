@@ -156,6 +156,9 @@ export function clearSessionCookies(): string[] {
 }
 
 export function readToken(request: Request): string | null {
+	const header = request.headers.get("Authorization") || "";
+	const bearer = header.match(/^Bearer\s+(\S+)/i);
+	if (bearer?.[1]) return bearer[1];
 	const cookie = request.headers.get("Cookie") || "";
 	const match = cookie.match(/(?:^|;\s*)pyrechat=([^;]+)/);
 	return match ? decodeURIComponent(match[1]) : null;

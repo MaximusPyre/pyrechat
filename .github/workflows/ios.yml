@@ -1,0 +1,31 @@
+name: iOS
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+jobs:
+  simulator:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile for iOS Simulator
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project PyreChat.xcodeproj \
+            -scheme PyreChat \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
