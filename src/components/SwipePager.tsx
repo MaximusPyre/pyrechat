@@ -6,7 +6,7 @@ const FLICK = 0.45;
 function ignoreTarget(target: EventTarget | null): boolean {
 	if (!(target instanceof Element)) return false;
 	return !!target.closest(
-		"input, textarea, select, .no-swipe, .editor, .sheet, .shutter, .lens-row, .filter-row, .draw-layer",
+		"input, textarea, select, .no-swipe, .editor, .sheet, .shutter, .lens-row, .filter-row, .draw-layer, .composer",
 	);
 }
 

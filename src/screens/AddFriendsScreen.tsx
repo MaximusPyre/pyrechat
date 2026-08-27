@@ -128,9 +128,15 @@ export function AddFriendsScreen({ onBack, pendingUsername }: { onBack: () => vo
 						placeholder="Find friends"
 						value={q}
 						onChange={(e) => setQ(e.target.value)}
+						autoComplete="off"
 						autoCapitalize="none"
 						autoCorrect="off"
+						spellCheck={false}
 						enterKeyHint="search"
+						inputMode="search"
+						data-lpignore="true"
+						data-1p-ignore="true"
+						data-form-type="other"
 					/>
 				</label>
 			</header>

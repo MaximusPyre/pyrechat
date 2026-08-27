@@ -16,7 +16,7 @@ type Item = {
 	skullmoji: string;
 };
 
-export function SpotlightScreen({ startAt = 0 }: { startAt?: number }) {
+export function SpotlightScreen({ startAt = 0, compact = false }: { startAt?: number; compact?: boolean }) {
 	const [items, setItems] = useState<Item[]>([]);
 	const [i, setI] = useState(startAt);
 	useEffect(() => {
@@ -28,23 +28,24 @@ export function SpotlightScreen({ startAt = 0 }: { startAt?: number }) {
 	const cur = items[i];
 	if (!cur) {
 		return (
-			<div className="page">
-				<div className="empty" style={{ paddingTop: 160 }}>
+			<div className={compact ? "spotlight compact empty" : "page"}>
+				<div className="empty" style={{ paddingTop: compact ? 48 : 160 }}>
 					Spotlight is empty. Newest Pyres show first, in order. Nobody is ranking you.
 				</div>
 			</div>
 		);
 	}
 	return (
-		<div className="spotlight"
+		<div className={`spotlight${compact ? " compact" : ""}`}
 			onWheel={(e) => {
 				if (e.deltaY > 20) setI((n) => Math.min(items.length - 1, n + 1));
 				if (e.deltaY < -20) setI((n) => Math.max(0, n - 1));
 			}}
 			onPointerUp={(e) => {
-				const y = e.clientY;
-				if (y < window.innerHeight / 3) setI((n) => Math.max(0, n - 1));
-				if (y > (window.innerHeight * 2) / 3) setI((n) => Math.min(items.length - 1, n + 1));
+				const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+				const y = e.clientY - rect.top;
+				if (y < rect.height / 3) setI((n) => Math.max(0, n - 1));
+				if (y > (rect.height * 2) / 3) setI((n) => Math.min(items.length - 1, n + 1));
 			}}
 		>
 			<div className="spot-item">

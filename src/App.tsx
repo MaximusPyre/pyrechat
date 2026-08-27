@@ -4,6 +4,7 @@ import { openSocket } from "./lib/ws";
 import type { ChatRow, Tab, User } from "./lib/types";
 import { MUTE, TEAL } from "./lib/brand";
 import { Icon } from "./components/Icon";
+import { DeskHome } from "./components/DeskHome";
 import { AuthScreen } from "./screens/AuthScreen";
 import { ChatListScreen } from "./screens/ChatScreens";
 import { AddFriendsScreen } from "./screens/AddFriendsScreen";
@@ -22,6 +23,7 @@ const SearchScreen = lazy(() => import("./screens/ProfileScreens").then((m) => (
 const FriendshipScreen = lazy(() => import("./screens/ProfileScreens").then((m) => ({ default: m.FriendshipScreen })));
 const CallScreen = lazy(() => import("./screens/ProfileScreens").then((m) => ({ default: m.CallScreen })));
 const ChatThreadScreen = lazy(() => import("./screens/ChatScreens").then((m) => ({ default: m.ChatThreadScreen })));
+const SpotlightScreen = lazy(() => import("./screens/SpotlightScreen").then((m) => ({ default: m.SpotlightScreen })));
 const SnapViewer = lazy(() => import("./screens/StoriesScreen").then((m) => ({ default: m.SnapViewer })));
 const StoryViewer = lazy(() => import("./screens/StoriesScreen").then((m) => ({ default: m.StoryViewer })));
 
@@ -244,9 +246,24 @@ export default function App() {
 		<ChatListScreen
 			refreshKey={inboxTick}
 			activeId={overlay?.t === "thread" ? overlay.chat.id : null}
+			desktop={desktop}
+			me={authed}
 			onOpen={openChat}
 			onSearch={() => setOverlay({ t: "search" })}
 			onAdd={() => setOverlay({ t: "add" })}
+			onYou={() => {
+				setOverlay(null);
+				setTab("you");
+			}}
+			onHome={() => {
+				setOverlay(null);
+				setTab("inbox");
+			}}
+			onSnap={() => {
+				setOverlay(null);
+				setTab("capture");
+			}}
+			onOpenStory={(items, i) => setOverlay({ t: "story", items, i })}
 		/>
 	);
 
@@ -271,8 +288,9 @@ export default function App() {
 	const capture = (
 		<Suspense fallback={<ScreenFallback />}>
 			<CameraScreen
-				active={Math.abs(TAB_IDS.indexOf(tab) - 1) <= 1}
+				active={desktop ? tab === "capture" : Math.abs(TAB_IDS.indexOf(tab) - 1) <= 1}
 				onOpenMemories={() => setOverlay({ t: "memories" })}
+				onClose={desktop ? () => setTab("inbox") : undefined}
 			/>
 		</Suspense>
 	);
@@ -360,21 +378,21 @@ export default function App() {
 	if (desktop) {
 		return (
 			<div className="app desktop">
-				{nav}
-				<aside className="desk-side">{inbox}</aside>
-				<div className="desk-main pager">
+				<aside className="desk-chats">{inbox}</aside>
+				<div className="desk-stage pager">
 					{overlay && !film ? (
 						overlays("pane")
-					) : tab === "inbox" ? (
-						<div className="desk-empty">
-							<div className="eyebrow">PyreChat</div>
-							<h2>Pick a chat</h2>
-							<p>Inbox on the left. Capture, Feed, and You fill this pane.</p>
-						</div>
-					) : (
+					) : tab === "capture" || tab === "feed" || tab === "you" ? (
 						tabScreen
+					) : (
+						<DeskHome me={authed} onCamera={() => setTab("capture")} />
 					)}
 				</div>
+				<aside className="desk-spot">
+					<Suspense fallback={<ScreenFallback />}>
+						<SpotlightScreen compact />
+					</Suspense>
+				</aside>
 				{film ? <div className="desk-film">{overlays("film")}</div> : null}
 			</div>
 		);

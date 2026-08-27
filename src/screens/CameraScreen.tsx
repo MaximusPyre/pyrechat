@@ -86,9 +86,11 @@ async function canvasToJpeg(src: HTMLCanvasElement): Promise<{ blob: Blob; url: 
 
 export function CameraScreen({
 	onOpenMemories,
+	onClose,
 	active = true,
 }: {
 	onOpenMemories: () => void;
+	onClose?: () => void;
 	active?: boolean;
 }) {
 	const videoRef = useRef<HTMLVideoElement>(null);
@@ -420,7 +422,22 @@ export function CameraScreen({
 					</button>
 				))}
 				{showText && (
-					<input className="caption" autoFocus placeholder="Tap to type" value={caption} onChange={(e) => setCaption(e.target.value)} />
+					<input
+						className="caption"
+						autoFocus
+						placeholder="Tap to type"
+						value={caption}
+						onChange={(e) => setCaption(e.target.value)}
+						autoComplete="off"
+						autoCorrect="on"
+						autoCapitalize="sentences"
+						spellCheck
+						enterKeyHint="done"
+						inputMode="text"
+						data-lpignore="true"
+						data-1p-ignore="true"
+						data-form-type="other"
+					/>
 				)}
 				<div className="editor-top">
 					<button className="icon-btn" onClick={() => { revokePreview(capture.url); setCapture(null); setHasInk(false); setPen(false); }}>
@@ -512,10 +529,16 @@ export function CameraScreen({
 			)}
 			<div className="cam-ui">
 				<div className="cam-top">
-					<div>
-						<div className="eyebrow light">Capture</div>
-						<div className="cam-hint">Tap for photo · hold for video</div>
-					</div>
+					{onClose ? (
+						<button className="icon-btn solid" onClick={onClose} aria-label="Close camera">
+							<Icon name="close" size={18} />
+						</button>
+					) : (
+						<div>
+							<div className="eyebrow light">Capture</div>
+							<div className="cam-hint">Tap for photo · hold for video</div>
+						</div>
+					)}
 					<button className="icon-btn solid" onClick={onOpenMemories} aria-label="Library"><Icon name="mem" size={18} /></button>
 				</div>
 				<div className="cam-dock">

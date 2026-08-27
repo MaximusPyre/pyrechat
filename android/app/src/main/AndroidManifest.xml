@@ -23,6 +23,7 @@
             android:launchMode="singleTask"
             android:exported="true"
             android:importantForAutofill="noExcludeDescendants"
+            android:windowSoftInputMode="adjustNothing"
             android:screenOrientation="portrait">
 
             <intent-filter>

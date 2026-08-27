@@ -1,17 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { api, mediaUrl, uploadMedia } from "../lib/api";
-import type { ChatRow } from "../lib/types";
+import { chatFieldProps } from "../lib/shell";
+import type { ChatRow, User } from "../lib/types";
 import { Icon } from "../components/Icon";
 import { DisplayName } from "../components/DisplayName";
-import { SkullmojiAvatar } from "../components/Skull";
+import { SkullLogo, SkullmojiAvatar } from "../components/Skull";
 import { AccountNotices, AppNoticeBanner, GetAppCard, NativeUpdateBanner } from "../components/GetApp";
 import { openSocket } from "../lib/ws";
+import { StoryRail, useStoryRail, type Story } from "./StoriesScreen";
 
-function statusOf(c: ChatRow): { cls: string; text: string } {
-	if (c.unopenedSnaps) return { cls: "unopened", text: "New Pyre" };
-	if (c.last?.kind === "snap") return { cls: "opened", text: "Opened" };
-	if (c.last?.kind === "text") return { cls: "chat", text: c.last.body || "Chat" };
-	if (c.last) return { cls: "chat", text: c.last.kind };
+function statusOf(c: ChatRow, meId?: string): { cls: string; text: string } {
+	const ago = timeAgo(c.last?.created_at);
+	const tail = ago ? ` • ${ago}` : "";
+	if (c.unopenedSnaps) return { cls: "unopened", text: `Received${tail}` };
+	if (c.last?.kind === "snap") return { cls: "opened", text: `Opened${tail}` };
+	if (c.last && (c.last.kind === "text" || c.last.kind === "sticker" || c.last.kind === "voice")) {
+		const mine = !!meId && c.last.sender_id === meId;
+		return { cls: mine ? "sent" : "chat", text: `${mine ? "Delivered" : "Received"}${tail}` };
+	}
+	if (c.last) return { cls: "chat", text: `${c.last.kind}${tail}` };
 	return { cls: "hollow", text: "Tap to chat" };
 }
 
@@ -28,55 +35,126 @@ export function ChatListScreen({
 	onOpen,
 	onSearch,
 	onAdd,
+	onYou,
+	onHome,
+	onSnap,
+	onOpenStory,
 	refreshKey = 0,
 	activeId,
+	desktop,
+	me,
 }: {
 	onOpen: (chat: ChatRow) => void;
 	onSearch: () => void;
 	onAdd: () => void;
+	onYou?: () => void;
+	onHome?: () => void;
+	onSnap?: () => void;
+	onOpenStory?: (items: Story[], i: number) => void;
 	refreshKey?: number;
 	activeId?: string | null;
+	desktop?: boolean;
+	me?: User;
 }) {
 	const [chats, setChats] = useState<ChatRow[]>([]);
+	const [q, setQ] = useState("");
+	const stories = useStoryRail();
 	useEffect(() => {
 		void api<{ chats: ChatRow[] }>("/api/chats").then((r) => setChats(r.chats));
 	}, [refreshKey]);
+	const query = q.trim().toLowerCase();
+	const shown = query
+		? chats.filter((c) => {
+				const title = c.is_group ? c.name || "Group" : c.members[0]?.display_name || "";
+				const user = c.members[0]?.username || "";
+				return title.toLowerCase().includes(query) || user.toLowerCase().includes(query);
+			})
+		: chats;
 	return (
 		<div className="page chat">
-			<div className="page-head">
-				<div>
-					<div className="eyebrow">PyreChat</div>
-					<h1>Inbox</h1>
+			{desktop ? (
+				<div className="web-head">
+					<button type="button" className="web-head-avatar" onClick={onYou} aria-label="You">
+						<SkullmojiAvatar value={me?.skullmoji} size={36} />
+					</button>
+					<button type="button" className="web-head-logo" onClick={onHome} aria-label="PyreChat">
+						<SkullLogo size={30} orange />
+					</button>
+					<button type="button" className="icon-btn ghost" onClick={onAdd} aria-label="Add friends">
+						<Icon name="person-add" size={20} />
+					</button>
+					<button type="button" className="web-head-new" onClick={onSearch} aria-label="Search">
+						<Icon name="search" size={18} />
+					</button>
 				</div>
-				<div className="page-head-actions">
-					<button className="icon-btn solid" onClick={onSearch} aria-label="Search"><Icon name="search" size={20} /></button>
-					<button className="icon-btn solid" onClick={onAdd} aria-label="Add friends"><Icon name="add" size={20} /></button>
+			) : (
+				<div className="page-head">
+					<div>
+						<div className="eyebrow">PyreChat</div>
+						<h1>Inbox</h1>
+					</div>
+					<div className="page-head-actions">
+						<button className="icon-btn solid" onClick={onSearch} aria-label="Search"><Icon name="search" size={20} /></button>
+						<button className="icon-btn solid" onClick={onAdd} aria-label="Add friends"><Icon name="add" size={20} /></button>
+					</div>
 				</div>
-			</div>
+			)}
 			<div className="list inset">
 				<NativeUpdateBanner />
 				<AppNoticeBanner />
 				<AccountNotices refreshKey={refreshKey} />
 				<GetAppCard />
-				{chats.length === 0 && <div className="empty">Add friends to start chatting.</div>}
-				{chats.map((c) => {
-					const st = statusOf(c);
+				<div className="web-search">
+					<Icon name="search" size={16} />
+					<input
+						value={q}
+						onChange={(e) => setQ(e.target.value)}
+						placeholder="Search"
+						aria-label="Search chats"
+						autoComplete="off"
+						autoCorrect="off"
+						autoCapitalize="none"
+						spellCheck={false}
+						enterKeyHint="search"
+						data-lpignore="true"
+						data-1p-ignore="true"
+						data-form-type="other"
+					/>
+				</div>
+				{onOpenStory && (
+					<StoryRail compact mine={stories.mine} friends={stories.friends} onOpen={onOpenStory} onCapture={onSnap} />
+				)}
+				{shown.length === 0 && <div className="empty">{chats.length === 0 ? "Add friends to start chatting." : "No chats match."}</div>}
+				{shown.map((c) => {
+					const st = statusOf(c, me?.id);
 					const title = c.is_group ? c.name || "Group" : c.members[0]?.display_name || "Chat";
+					const storyOn = !c.is_group && !!c.members[0]?.story_key;
 					return (
-						<button key={c.id} className={`row ${c.id === activeId ? "on" : ""}`} onClick={() => onOpen(c)}>
-							<SkullmojiAvatar value={c.members[0]?.skullmoji} ring={!!c.unopenedSnaps} />
+						<button key={c.id} type="button" className={`row ${c.id === activeId ? "on" : ""}`} onClick={() => onOpen(c)}>
+							<SkullmojiAvatar value={c.members[0]?.skullmoji} ring={!!c.unopenedSnaps || storyOn} />
 							<div className="row-body">
 								<div className="row-title">
 									<DisplayName name={title} username={c.is_group ? undefined : c.members[0]?.username} kindling={c.is_group ? undefined : c.members[0]?.kindling} />
 								</div>
 								<div className="row-sub">
-									<i className={`status-dot ${st.cls}`} />
+									<i className={`status-ico ${st.cls}`} />
 									{st.text}
 									{c.streak > 0 && <span className="streak">🔥 {c.streak}</span>}
-									<span>{timeAgo(c.last?.created_at)}</span>
 								</div>
 							</div>
-							{c.unopenedSnaps > 0 && <span className="badge">{c.unopenedSnaps}</span>}
+							{onSnap && (
+								<span
+									className="row-cam"
+									role="button"
+									aria-label="Camera"
+									onClick={(e) => {
+										e.stopPropagation();
+										onSnap();
+									}}
+								>
+									<Icon name="cam" size={16} />
+								</span>
+							)}
 						</button>
 					);
 				})}
@@ -398,26 +476,39 @@ export function ChatThreadScreen({
 			)}
 			<div className="composer">
 				<button type="button" className="composer-cam" onClick={onSnap} aria-label="Camera"><Icon name="cam" size={22} /></button>
-				<form className="composer-field" autoComplete="off" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+				<div className="composer-field">
 					<input
+						{...chatFieldProps}
 						value={text}
-						name="pyre-chat"
-						autoComplete="off"
-						autoCorrect="on"
-						autoCapitalize="sentences"
-						spellCheck
-						enterKeyHint="send"
-						inputMode="text"
+						placeholder="Send a Chat"
+						data-lpignore="true"
+						data-1p-ignore="true"
+						data-form-type="other"
+						onKeyDown={(e) => {
+							if (e.key === "Enter") {
+								e.preventDefault();
+								void send();
+							}
+						}}
 						onChange={(e) => {
 							setText(e.target.value);
 							pingTyping();
 						}}
-						placeholder="Send a Chat"
 					/>
-					<button type="button" className="icon-btn ghost" onClick={() => void voiceNote()} aria-label="Voice"><Icon name="mic" size={18} /></button>
-					<button type="button" className="icon-btn ghost" onClick={() => setStickersOpen((v) => !v)} aria-label="Stickers"><Icon name="sticker" size={18} /></button>
-				</form>
-				<button type="button" className="icon-btn ghost" onClick={pickAttachment} aria-label="Gallery"><Icon name="mem" size={20} /></button>
+					{!text.trim() && (
+						<>
+							<button type="button" className="icon-btn ghost" onClick={() => void voiceNote()} aria-label="Voice"><Icon name="mic" size={18} /></button>
+							<button type="button" className="icon-btn ghost" onClick={() => setStickersOpen((v) => !v)} aria-label="Stickers"><Icon name="sticker" size={18} /></button>
+						</>
+					)}
+				</div>
+				{text.trim() ? (
+					<button type="button" className="composer-send" onClick={() => void send()} aria-label="Send">
+						<Icon name="send" size={18} color="#fff" />
+					</button>
+				) : (
+					<button type="button" className="icon-btn ghost" onClick={pickAttachment} aria-label="Gallery"><Icon name="mem" size={20} /></button>
+				)}
 			</div>
 		</div>
 	);

@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Capacitor } from "@capacitor/core";
+import { bootNativeShell } from "./lib/shell";
 import App from "./App";
 import "./index.css";
 
@@ -37,11 +38,7 @@ if ("serviceWorker" in navigator && !Capacitor.isNativePlatform()) {
 	}
 }
 
-if (Capacitor.isNativePlatform()) {
-	void import("@capacitor/keyboard").then(({ Keyboard }) => {
-		void Keyboard.setAccessoryBarVisible({ isVisible: false });
-	});
-}
+bootNativeShell();
 
 createRoot(document.getElementById("root")!).render(
 	<StrictMode>

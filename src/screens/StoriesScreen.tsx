@@ -55,18 +55,7 @@ export function StoriesScreen({
 			)}
 			<div className={embedded ? "" : "list"}>
 				<div className="section">Friends</div>
-				<div className="story-row">
-					<button className="story-item" onClick={() => mine.length && onOpen(mine, 0)}>
-						<SkullmojiAvatar ring={mine.length > 0} size={64} />
-						<span>My Story</span>
-					</button>
-					{friendGroups.map((g) => (
-						<button key={g.userId} className="story-item" onClick={() => onOpen(g.items, 0)}>
-							<SkullmojiAvatar value={g.items[0].skullmoji} ring size={64} />
-							<span><DisplayName name={g.items[0].display_name || ""} username={g.items[0].username} kindling={g.items[0].kindling} /></span>
-						</button>
-					))}
-				</div>
+				<StoryRail mine={mine} friends={friendGroups} onOpen={onOpen} />
 				{!embedded && (
 					<>
 				<div className="section">Newest public</div>
@@ -85,6 +74,49 @@ export function StoriesScreen({
 			</div>
 		</div>
 	);
+}
+
+export function StoryRail({
+	mine,
+	friends,
+	onOpen,
+	onCapture,
+	compact,
+}: {
+	mine: Story[];
+	friends: { userId: string; items: Story[] }[];
+	onOpen: (items: Story[], i: number) => void;
+	onCapture?: () => void;
+	compact?: boolean;
+}) {
+	return (
+		<div className={`story-row${compact ? " compact" : ""}`}>
+			<button type="button" className="story-item" onClick={() => (mine.length ? onOpen(mine, 0) : onCapture?.())}>
+				<SkullmojiAvatar ring={mine.length > 0} size={compact ? 52 : 64} />
+				<span>My Story</span>
+			</button>
+			{friends.map((g) => (
+				<button type="button" key={g.userId} className="story-item" onClick={() => onOpen(g.items, 0)}>
+					<SkullmojiAvatar value={g.items[0].skullmoji} ring size={compact ? 52 : 64} />
+					<span>
+						<DisplayName name={g.items[0].display_name || ""} username={g.items[0].username} kindling={g.items[0].kindling} />
+					</span>
+				</button>
+			))}
+		</div>
+	);
+}
+
+export function useStoryRail() {
+	const [mine, setMine] = useState<Story[]>([]);
+	const [friends, setFriends] = useState<{ userId: string; items: Story[] }[]>([]);
+	useEffect(() => {
+		void api<{ mine: Story[]; friends: Story[] }>("/api/stories").then((r) => {
+			setMine(r.mine);
+			setFriends(groupByUser(r.friends));
+		});
+	}, []);
+	return { mine, friends };
 }
 
 function groupByUser(stories: Story[]): { userId: string; items: Story[] }[] {
