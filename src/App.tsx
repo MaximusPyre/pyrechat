@@ -8,6 +8,7 @@ import { AuthScreen } from "./screens/AuthScreen";
 import { ChatListScreen } from "./screens/ChatScreens";
 import { AddFriendsScreen } from "./screens/AddFriendsScreen";
 import { RecoveryKeySheet } from "./components/RecoveryKey";
+import { SwipePager, SwipePane } from "./components/SwipePager";
 import type { Story } from "./screens/StoriesScreen";
 
 const CameraScreen = lazy(() => import("./screens/CameraScreen").then((m) => ({ default: m.CameraScreen })));
@@ -43,6 +44,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 	{ id: "feed", label: "Feed", icon: "feed" },
 	{ id: "you", label: "You", icon: "user" },
 ];
+const TAB_IDS = TABS.map((t) => t.id);
 
 const DESKTOP_MQ = "(min-width: 900px)";
 
@@ -102,7 +104,7 @@ class OverlayErrorBoundary extends Component<{ children: ReactNode }, { failed: 
 export default function App() {
 	const [user, setUser] = useState<User | null>(null);
 	const [booting, setBooting] = useState(true);
-	const [tab, setTab] = useState<Tab>("inbox");
+	const [tab, setTab] = useState<Tab>("capture");
 	const [overlay, setOverlay] = useState<Overlay | null>(null);
 	const [inboxTick, setInboxTick] = useState(0);
 	const [inboxSnap, setInboxSnap] = useState<string | null>(null);
@@ -249,7 +251,7 @@ export default function App() {
 	);
 
 	const nav = (
-		<nav className={`nav ${!desktop && tab === "capture" ? "over-cam" : ""}`}>
+		<nav className={`nav ${!desktop ? "over-cam" : ""}`}>
 			{TABS.map((t) => (
 				<button
 					key={t.id}
@@ -266,33 +268,41 @@ export default function App() {
 		</nav>
 	);
 
-	const tabScreen =
-		tab === "capture" ? (
-			<Suspense fallback={<ScreenFallback />}>
-				<CameraScreen onOpenMemories={() => setOverlay({ t: "memories" })} />
-			</Suspense>
-		) : tab === "feed" ? (
-			<Suspense fallback={<ScreenFallback />}>
-				<FeedScreen
-					onSearch={() => setOverlay({ t: "search" })}
-					onAdd={() => setOverlay({ t: "add" })}
-					onOpenStory={(items, i) => setOverlay({ t: "story", items, i })}
-				/>
-			</Suspense>
-		) : tab === "you" ? (
-			<Suspense fallback={<ScreenFallback />}>
-				<ProfileScreen
-					embedded
-					me={authed}
-					onBack={() => setTab("inbox")}
-					onSettings={() => setOverlay({ t: "settings" })}
-					onAdd={() => setOverlay({ t: "add" })}
-					onMemories={() => setOverlay({ t: "memories" })}
-					onMap={() => setOverlay({ t: "map" })}
-					refresh={() => void refreshMe()}
-				/>
-			</Suspense>
-		) : null;
+	const capture = (
+		<Suspense fallback={<ScreenFallback />}>
+			<CameraScreen
+				active={Math.abs(TAB_IDS.indexOf(tab) - 1) <= 1}
+				onOpenMemories={() => setOverlay({ t: "memories" })}
+			/>
+		</Suspense>
+	);
+
+	const feed = (
+		<Suspense fallback={<ScreenFallback />}>
+			<FeedScreen
+				onSearch={() => setOverlay({ t: "search" })}
+				onAdd={() => setOverlay({ t: "add" })}
+				onOpenStory={(items, i) => setOverlay({ t: "story", items, i })}
+			/>
+		</Suspense>
+	);
+
+	const you = (
+		<Suspense fallback={<ScreenFallback />}>
+			<ProfileScreen
+				embedded
+				me={authed}
+				onBack={() => setTab("inbox")}
+				onSettings={() => setOverlay({ t: "settings" })}
+				onAdd={() => setOverlay({ t: "add" })}
+				onMemories={() => setOverlay({ t: "memories" })}
+				onMap={() => setOverlay({ t: "map" })}
+				refresh={() => void refreshMe()}
+			/>
+		</Suspense>
+	);
+
+	const tabScreen = tab === "capture" ? capture : tab === "feed" ? feed : tab === "you" ? you : null;
 
 	function overlays(mode: "pane" | "film" | "all") {
 		const pane = mode === "pane" || mode === "all";
@@ -372,9 +382,16 @@ export default function App() {
 
 	return (
 		<div className="app">
-			<div className="pager">
-				{tab === "inbox" ? inbox : tabScreen}
-			</div>
+			<SwipePager
+				index={Math.max(0, TAB_IDS.indexOf(tab))}
+				count={TAB_IDS.length}
+				onIndex={(i) => setTab(TAB_IDS[i] || "capture")}
+			>
+				<SwipePane>{inbox}</SwipePane>
+				<SwipePane>{capture}</SwipePane>
+				<SwipePane>{feed}</SwipePane>
+				<SwipePane>{you}</SwipePane>
+			</SwipePager>
 			{!overlay && nav}
 			{overlays("all")}
 		</div>

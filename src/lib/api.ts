@@ -46,12 +46,33 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 	}
 }
 
+function guessUploadType(file: File): string {
+	if (file.type && file.type !== "application/octet-stream") return file.type;
+	const m = (file.name || "").toLowerCase().match(/\.([a-z0-9]+)$/);
+	const ext = m?.[1];
+	if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+	if (ext === "png") return "image/png";
+	if (ext === "gif") return "image/gif";
+	if (ext === "webp") return "image/webp";
+	if (ext === "heic") return "image/heic";
+	if (ext === "heif") return "image/heif";
+	if (ext === "pdf") return "application/pdf";
+	if (ext === "txt") return "text/plain";
+	if (ext === "csv") return "text/csv";
+	if (ext === "json") return "application/json";
+	if (ext === "zip") return "application/zip";
+	if (ext === "mp4") return "video/mp4";
+	if (ext === "webm") return "video/webm";
+	return file.type || "application/octet-stream";
+}
+
 export async function uploadTicketFile(file: File): Promise<{ id: string; name: string; url: string; image: boolean }> {
+	const name = file.name || `upload-${Date.now()}`;
 	return api("/api/tickets/attachments", {
 		method: "POST",
 		headers: {
-			"Content-Type": file.type || "application/octet-stream",
-			"X-Filename": file.name,
+			"Content-Type": guessUploadType(file),
+			"X-Filename": encodeURIComponent(name),
 		},
 		body: file,
 	});

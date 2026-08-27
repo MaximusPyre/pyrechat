@@ -48,9 +48,9 @@ import {
 	publicTicket,
 	sanitizeTicketFilename,
 	serveTicketAttachment,
+	sniffTicketType,
 	TICKET_MAX_FILES,
 	ticketFileExt,
-	ticketFileType,
 	verifyTicketBotBearer,
 	verifyTicketCallbackToken,
 	type AttachmentRow,
@@ -1583,7 +1583,10 @@ app.post("/api/tickets/attachments", async (c) => {
 	if (await rateLimited(c.req.raw, "ticket-file", 30, 3600)) return bad("Too many uploads right now", 429);
 	const me = c.get("user");
 	const filename = sanitizeTicketFilename(c.req.header("x-filename") || c.req.query("filename") || "attachment");
-	const ct = ticketFileType(c.req.header("content-type") || "", filename);
+	const buf = await c.req.arrayBuffer();
+	if (!buf.byteLength) return bad("Empty file");
+	if (buf.byteLength > MAX_FILE_BYTES) return bad("File too large (10 MB max)", 413);
+	const ct = sniffTicketType(buf, c.req.header("content-type") || "", filename);
 	if (!ct) return bad("That file type is not allowed", 415);
 	const pending = await c.env.DB.prepare(
 		"SELECT COUNT(*) AS n FROM ticket_attachments WHERE user_id = ? AND ticket_id IS NULL",
@@ -1591,9 +1594,6 @@ app.post("/api/tickets/attachments", async (c) => {
 		.bind(me.id)
 		.first<{ n: number }>();
 	if (Number(pending?.n || 0) >= TICKET_MAX_FILES) return bad(`At most ${TICKET_MAX_FILES} files per ticket`);
-	const buf = await c.req.arrayBuffer();
-	if (!buf.byteLength) return bad("Empty file");
-	if (buf.byteLength > MAX_FILE_BYTES) return bad("File too large (10 MB max)", 413);
 	const id = crypto.randomUUID();
 	const key = `tickets/${me.id}/${id}.${ticketFileExt(ct, filename)}`;
 	await c.env.MEDIA.put(key, buf, { httpMetadata: { contentType: ct } });

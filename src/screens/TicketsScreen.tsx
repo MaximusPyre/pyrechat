@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Camera } from "@capacitor/camera";
+import { Capacitor } from "@capacitor/core";
 import { ApiError, api, apiOrigin, uploadTicketFile } from "../lib/api";
 import type { Ticket } from "../lib/types";
 import { Icon } from "../components/Icon";
@@ -11,18 +13,48 @@ const STATUS: Record<Ticket["status"], string> = {
 	failed: "Failed",
 };
 
-const IMAGE_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif";
-const FILE_ACCEPT = `${IMAGE_ACCEPT},application/pdf,text/plain,text/csv,application/json,application/zip,video/mp4,video/webm`;
+const IMAGE_ACCEPT = "image/*";
+const FILE_ACCEPT = "image/*,.pdf,.txt,.csv,.json,.zip,.mp4,.webm,.mp3,.m4a,application/pdf,text/plain";
 const MAX_FILES = 5;
 
 type Draft = {
 	id: string;
 	file: File;
 	preview: string | null;
+	broken?: boolean;
 };
 
 function fileUrl(path: string): string {
 	return `${apiOrigin()}${path}`;
+}
+
+function canPreviewImage(file: File): boolean {
+	const t = `${file.type} ${file.name}`.toLowerCase();
+	if (/heic|heif/.test(t)) return false;
+	return file.type.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(file.name);
+}
+
+async function nativeGalleryFiles(limit: number): Promise<File[] | "cancel" | null> {
+	if (!Capacitor.isNativePlatform() || limit <= 0) return null;
+	try {
+		const picked = await Camera.pickImages({ quality: 88, limit });
+		const out: File[] = [];
+		for (const photo of picked.photos) {
+			const src = photo.webPath;
+			if (!src) continue;
+			const res = await fetch(src);
+			const blob = await res.blob();
+			if (!blob.size) continue;
+			const ext = (photo.format || "jpeg").replace("jpeg", "jpg");
+			const type = blob.type && blob.type !== "application/octet-stream" ? blob.type : `image/${ext === "jpg" ? "jpeg" : ext}`;
+			out.push(new File([blob], `photo-${Date.now()}-${out.length}.${ext}`, { type }));
+		}
+		return out;
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		if (/cancel/i.test(msg)) return "cancel";
+		return null;
+	}
 }
 
 export function TicketsScreen({ founder, onBack }: { founder?: boolean; onBack: () => void }) {
@@ -61,21 +93,41 @@ export function TicketsScreen({ founder, onBack }: { founder?: boolean; onBack: 
 		};
 	}, []);
 
-	function addFiles(list: FileList | null) {
-		if (!list?.length) return;
+	function addFiles(list: FileList | File[] | null) {
+		if (!list || (list as FileList | File[]).length === 0) {
+			setMsg("Could not read that file. Try Photos or Files again.");
+			return;
+		}
+		const files = Array.isArray(list) ? list : Array.from(list);
+		if (!files.length) {
+			setMsg("Could not read that file. Try Photos or Files again.");
+			return;
+		}
 		setDrafts((cur) => {
 			const next = [...cur];
-			for (const file of Array.from(list)) {
+			for (const raw of files) {
 				if (next.length >= MAX_FILES) break;
+				const file = raw.name ? raw : new File([raw], `photo-${Date.now()}.jpg`, { type: raw.type || "image/jpeg" });
 				if (next.some((d) => d.file.name === file.name && d.file.size === file.size)) continue;
 				next.push({
 					id: crypto.randomUUID(),
 					file,
-					preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+					preview: canPreviewImage(file) ? URL.createObjectURL(file) : null,
 				});
 			}
 			return next.slice(0, MAX_FILES);
 		});
+	}
+
+	async function pickPhotos() {
+		const room = MAX_FILES - drafts.length;
+		const native = await nativeGalleryFiles(room);
+		if (native === "cancel") return;
+		if (native) {
+			if (native.length) addFiles(native);
+			return;
+		}
+		photoRef.current?.click();
 	}
 
 	function removeDraft(id: string) {
@@ -160,35 +212,54 @@ export function TicketsScreen({ founder, onBack }: { founder?: boolean; onBack: 
 						maxLength={4000}
 						style={{ width: "100%", resize: "vertical", minHeight: 96 }}
 					/>
-					<input
-						ref={photoRef}
-						type="file"
-						accept={IMAGE_ACCEPT}
-						multiple
-						hidden
-						onChange={(e) => {
-							addFiles(e.target.files);
-							e.target.value = "";
-						}}
-					/>
-					<input
-						ref={fileRef}
-						type="file"
-						accept={FILE_ACCEPT}
-						multiple
-						hidden
-						onChange={(e) => {
-							addFiles(e.target.files);
-							e.target.value = "";
-						}}
-					/>
 					<div className="ticket-attach-row">
-						<button type="button" className="pill" onClick={() => photoRef.current?.click()}>
-							<Icon name="image" size={16} /> Photos
-						</button>
-						<button type="button" className="pill" onClick={() => fileRef.current?.click()}>
+						{Capacitor.isNativePlatform() ? (
+							<>
+								<input
+									ref={photoRef}
+									className="file-sr"
+									type="file"
+									accept={IMAGE_ACCEPT}
+									multiple
+									onChange={(e) => {
+										addFiles(e.target.files);
+										e.target.value = "";
+									}}
+								/>
+								<button type="button" className="pill" onClick={() => void pickPhotos()}>
+									<Icon name="image" size={16} /> Photos
+								</button>
+							</>
+						) : (
+							<label className="pill ticket-pick">
+								<input
+									ref={photoRef}
+									className="file-sr"
+									type="file"
+									accept={IMAGE_ACCEPT}
+									multiple
+									onChange={(e) => {
+										addFiles(e.target.files);
+										e.target.value = "";
+									}}
+								/>
+								<Icon name="image" size={16} /> Photos
+							</label>
+						)}
+						<label className="pill ticket-pick">
+							<input
+								ref={fileRef}
+								className="file-sr"
+								type="file"
+								accept={FILE_ACCEPT}
+								multiple
+								onChange={(e) => {
+									addFiles(e.target.files);
+									e.target.value = "";
+								}}
+							/>
 							<Icon name="clip" size={16} /> Files
-						</button>
+						</label>
 						<span className="muted" style={{ fontWeight: 700, fontSize: 12 }}>
 							{drafts.length}/{MAX_FILES} · 10 MB each
 						</span>
@@ -197,10 +268,10 @@ export function TicketsScreen({ founder, onBack }: { founder?: boolean; onBack: 
 						<div className="ticket-files">
 							{drafts.map((d) => (
 								<div key={d.id} className="ticket-file">
-									{d.preview ? (
-										<img src={d.preview} alt="" />
+									{d.preview && !d.broken ? (
+										<img src={d.preview} alt="" onError={() => setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, broken: true } : x)))} />
 									) : (
-										<div className="ticket-file-name">{d.file.name}</div>
+										<div className="ticket-file-name">{d.file.name || "Photo"}</div>
 									)}
 									<button type="button" className="ticket-file-x" onClick={() => removeDraft(d.id)} aria-label="Remove">
 										×

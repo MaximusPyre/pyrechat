@@ -86,8 +86,10 @@ async function canvasToJpeg(src: HTMLCanvasElement): Promise<{ blob: Blob; url: 
 
 export function CameraScreen({
 	onOpenMemories,
+	active = true,
 }: {
 	onOpenMemories: () => void;
+	active?: boolean;
 }) {
 	const videoRef = useRef<HTMLVideoElement>(null);
 	const liveRef = useRef<HTMLCanvasElement>(null);
@@ -173,14 +175,15 @@ export function CameraScreen({
 	}, [facing]);
 
 	useEffect(() => {
-		if (capture) {
+		if (!active || capture) {
 			streamRef.current?.getTracks().forEach((t) => t.stop());
 			streamRef.current = null;
+			if (!active) setCamState("off");
 			return;
 		}
 		void startCam();
 		return () => streamRef.current?.getTracks().forEach((t) => t.stop());
-	}, [startCam, capture]);
+	}, [startCam, capture, active]);
 
 	useEffect(() => {
 		if (capture || camState !== "live") return;
@@ -364,7 +367,7 @@ export function CameraScreen({
 
 	if (capture) {
 		return (
-			<div className="editor">
+			<div className="editor no-swipe">
 				{capture.kind === "video" ? (
 					<video
 						className="preview"

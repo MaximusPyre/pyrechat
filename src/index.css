@@ -36,6 +36,20 @@ img, video { max-width: 100%; }
 
 .app { height: 100%; display: flex; flex-direction: column; background: var(--ink); position: relative; }
 .pager { flex: 1; position: relative; overflow: hidden; }
+.swipe-pager { touch-action: pan-y; overscroll-behavior-x: none; }
+.pager-track {
+	height: 100%;
+	display: flex;
+	will-change: transform;
+}
+.pager-pane {
+	flex: 0 0 100%;
+	width: 100%;
+	height: 100%;
+	position: relative;
+	overflow: hidden;
+	touch-action: pan-y;
+}
 .page {
 	position: absolute; inset: 0;
 	overflow: hidden;
@@ -116,7 +130,7 @@ img, video { max-width: 100%; }
 .status-dot.hollow { background: transparent; border: 2px solid var(--mute); }
 .streak { color: var(--pyre); font-weight: 800; }
 
-.camera { position: absolute; inset: 0; background: #000; }
+.camera { position: absolute; inset: 0; background: #000; touch-action: pan-y; }
 .camera video.cam-src {
 	position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
 }
@@ -326,6 +340,23 @@ img, video { max-width: 100%; }
 .ticket-attach-row {
 	display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 	margin: 4px 0 10px;
+}
+.ticket-pick { position: relative; overflow: hidden; cursor: pointer; }
+.ticket-pick .file-sr {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	opacity: 0;
+	font-size: 16px;
+	cursor: pointer;
+}
+.file-sr {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+	overflow: hidden;
 }
 .ticket-files {
 	display: flex; flex-wrap: wrap; gap: 8px;
