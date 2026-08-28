@@ -23,7 +23,7 @@ export function GuestHome({ onAuthed: _onAuthed }: { onAuthed: (user: User) => v
 				<Suspense fallback={<div className="perm-card"><p>Opening camera…</p></div>}>
 					<CameraScreen
 						demo
-						active
+						active={!gate}
 						onOpenMemories={() => setGate(true)}
 						onNeedAccount={() => setGate(true)}
 					/>
