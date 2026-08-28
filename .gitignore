@@ -43,3 +43,12 @@ ios/DerivedData
 ios/*.xcuserstate
 ios/PyreChat.xcodeproj/xcuserdata
 *.xcuserstate
+
+# Flutter client
+pyrechat_flutter/.dart_tool/
+pyrechat_flutter/.flutter-plugins-dependencies
+pyrechat_flutter/.packages
+pyrechat_flutter/build/
+pyrechat_flutter/.idea/
+pyrechat_flutter/*.iml
+pyrechat_flutter/.metadata
