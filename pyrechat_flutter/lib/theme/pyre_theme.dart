@@ -1,14 +1,8 @@
 import 'package:flutter/material.dart';
 
-abstract final class PyreColors {
-  static const ember = Color(0xFFFC7A1A);
-  static const emberSoft = Color(0xFFFFB056);
-  static const ink = Color(0xFF140E0B);
-  static const panel = Color(0xFF1F1612);
-  static const paper = Color(0xFFFBF6F0);
-  static const mute = Color(0xFFC4A48E);
-  static const error = Color(0xFFFF8A70);
-}
+import 'package:pyrechat_flutter/theme/pyre_colors.dart';
+
+export 'pyre_colors.dart';
 
 ThemeData pyreTheme() {
   return ThemeData(

@@ -1,0 +1,1 @@
+enum AuthChoice { login, signup }

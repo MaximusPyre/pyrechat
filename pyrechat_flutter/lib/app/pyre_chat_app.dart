@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:pyrechat_flutter/pages/onboarding/onboarding_page.dart';
-import 'package:pyrechat_flutter/theme/pyre_theme.dart';
 
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const PyreChatApp());
-}
+import 'package:pyrechat_flutter/app/pyre_router.dart';
+import 'package:pyrechat_flutter/navigation/pyre_page.dart';
+import 'package:pyrechat_flutter/theme/pyre_theme.dart';
 
 class PyreChatApp extends StatelessWidget {
   const PyreChatApp({super.key});
@@ -16,7 +13,9 @@ class PyreChatApp extends StatelessWidget {
       title: 'PyreChat',
       debugShowCheckedModeBanner: false,
       theme: pyreTheme(),
-      home: const OnboardingPage(),
+
+      initialRoute: PyreRoutes.splash,
+      onGenerateRoute: PyreRouter.onGenerateRoute,
     );
   }
 }
