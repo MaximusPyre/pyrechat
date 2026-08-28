@@ -17,8 +17,10 @@ class PyreLogo extends StatelessWidget {
   final double opacity;
   final PyreFlameKind kind;
 
-  static const _signInAsset = 'assets/pyre_flame_signin.png';
-  static const _signUpAsset = 'assets/pyre_flame_signup.png';
+  static const _signInAsset =
+      'assets/ChatGPT Image Aug 28, 2026, 07_34_39 PM (1).png';
+  static const _signUpAsset =
+      'assets/ChatGPT Image Aug 28, 2026, 07_34_39 PM (2).png';
 
   String get _asset => switch (kind) {
         PyreFlameKind.signIn => _signInAsset,

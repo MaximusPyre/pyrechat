@@ -77,8 +77,8 @@ flutter:
 
   assets:
     - assets/pyre_flame.png
-    - assets/pyre_flame_signin.png
-    - assets/pyre_flame_signup.png
+    - assets/ChatGPT Image Aug 28, 2026, 07_34_39 PM (1).png
+    - assets/ChatGPT Image Aug 28, 2026, 07_34_39 PM (2).png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

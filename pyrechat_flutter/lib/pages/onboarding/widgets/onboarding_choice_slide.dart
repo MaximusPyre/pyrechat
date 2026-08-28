@@ -81,22 +81,25 @@ class OnboardingChoiceSlideState extends State<OnboardingChoiceSlide>
           final shrink = AuthMotion.phase(t, 0.32, 0.92, AuthMotion.flow);
           final flameSize = flame + (splitFlame - flame) * shrink;
           final spread = (flameSize * 0.74 + 18) * separate;
+          // Plus badge extends past the plain flame — hide sign-up once they overlap.
+          final signUpOpacity = separate < 0.08 ? 0.0 : 1.0;
 
           return Stack(
             fit: StackFit.expand,
             clipBehavior: Clip.none,
             children: [
               _SplitFlame(
+                center: Offset(center.dx + spread, center.dy),
+                size: flameSize,
+                kind: PyreFlameKind.signUp,
+                opacity: signUpOpacity,
+                onTap: widget.onSignup,
+              ),
+              _SplitFlame(
                 center: Offset(center.dx - spread, center.dy),
                 size: flameSize,
                 kind: PyreFlameKind.signIn,
                 onTap: widget.onLogin,
-              ),
-              _SplitFlame(
-                center: Offset(center.dx + spread, center.dy),
-                size: flameSize,
-                kind: PyreFlameKind.signUp,
-                onTap: widget.onSignup,
               ),
             ],
           );
@@ -113,15 +116,19 @@ class _SplitFlame extends StatelessWidget {
     required this.size,
     required this.onTap,
     required this.kind,
+    this.opacity = 1,
   });
 
   final Offset center;
   final double size;
   final VoidCallback onTap;
   final PyreFlameKind kind;
+  final double opacity;
 
   @override
   Widget build(BuildContext context) {
+    if (opacity <= 0) return const SizedBox.shrink();
+
     return Positioned(
       left: center.dx - size / 2,
       top: center.dy - size / 2,
@@ -134,7 +141,10 @@ class _SplitFlame extends StatelessWidget {
             HapticFeedback.selectionClick();
             onTap();
           },
-          child: PyreLogo(size: size, kind: kind),
+          child: Opacity(
+            opacity: opacity,
+            child: PyreLogo(size: size, kind: kind),
+          ),
         ),
       ),
     );
